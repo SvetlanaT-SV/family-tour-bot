@@ -1,0 +1,14 @@
+# ВАЖНО: эти файлы содержат секреты — никогда не отправляй их в git!
+.env
+google_credentials.json
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Виртуальное окружение
+venv/
+.venv/
+env/

@@ -1,0 +1,18 @@
+# Секреты и ключи — НИКОГДА не отправлять в git
+.env
+google_credentials.json
+*.json.key
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# Claude Code
+.claude/

@@ -1,0 +1,178 @@
+"""
+sheets/client.py — Сохранение заявок в Google Sheets
+
+Каждая заявка = одна строка в таблице.
+Таблица — это наша мини-CRM: видно кто написал, что хотел, статус.
+
+Как настроить Google Sheets:
+  1. Перейди на console.cloud.google.com
+  2. Создай проект → включи Google Sheets API и Google Drive API
+  3. Создай сервисный аккаунт → скачай JSON-ключ → сохрани как google_credentials.json
+  4. Создай Google Sheets таблицу
+  5. Дай доступ сервисному аккаунту (email из JSON) как "Редактор"
+  6. ID таблицы — из URL: docs.google.com/spreadsheets/d/ВОТ_ЭТО/edit
+
+Полная инструкция: https://gspread.readthedocs.io/en/latest/oauth2.html
+"""
+
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+from typing import Optional
+
+
+# Права доступа которые нам нужны
+SCOPES = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive",
+]
+
+# Названия листов таблицы
+SHEET_LEADS   = "Заявки"    # сюда пишем новые заявки
+SHEET_CLIENTS = "Клиенты"   # сюда пишем обновлённые данные клиентов
+
+# Заголовки колонок в листе "Заявки"
+LEADS_HEADERS = [
+    "Дата",
+    "Имя",
+    "Телефон",
+    "Тур (интерес)",
+    "Даты",
+    "Туристы",
+    "Бюджет",
+    "Telegram ID",
+    "Telegram username",
+    "Источник",
+    "Статус",
+    "Комментарий",
+]
+
+
+class SheetsClient:
+    """
+    Клиент для работы с Google Sheets.
+
+    Пример:
+        sheets = SheetsClient("google_credentials.json", "sheet_id_here")
+        sheets.add_lead({...})
+    """
+
+    def __init__(self, credentials_file: str, sheet_id: str):
+        self.sheet_id = sheet_id
+        try:
+            creds = Credentials.from_service_account_file(
+                credentials_file, scopes=SCOPES
+            )
+            self.gc = gspread.authorize(creds)
+            self._ensure_sheets_exist()
+        except FileNotFoundError:
+            print(f"⚠️  Файл {credentials_file} не найден.")
+            print("   Следуй инструкции в sheets/client.py чтобы настроить Google Sheets")
+            self.gc = None
+
+    def _get_spreadsheet(self):
+        """Открывает таблицу по ID"""
+        if not self.gc:
+            return None
+        try:
+            return self.gc.open_by_key(self.sheet_id)
+        except Exception as e:
+            print(f"⚠️  Не удалось открыть таблицу: {e}")
+            return None
+
+    def _ensure_sheets_exist(self):
+        """
+        Создаёт листы с заголовками если их ещё нет.
+        Запускается один раз при первом подключении.
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return
+
+        existing = [ws.title for ws in ss.worksheets()]
+
+        # Создаём лист "Заявки" если нет
+        if SHEET_LEADS not in existing:
+            ws = ss.add_worksheet(title=SHEET_LEADS, rows=1000, cols=20)
+            ws.append_row(LEADS_HEADERS)
+            # Жирные заголовки
+            ws.format("A1:L1", {"textFormat": {"bold": True}})
+            print(f"✅ Sheets: создан лист '{SHEET_LEADS}'")
+
+        # Создаём лист "Клиенты" если нет
+        if SHEET_CLIENTS not in existing:
+            ss.add_worksheet(title=SHEET_CLIENTS, rows=1000, cols=20)
+            print(f"✅ Sheets: создан лист '{SHEET_CLIENTS}'")
+
+    def add_lead(self, lead: dict) -> bool:
+        """
+        Добавляет новую заявку строкой в лист "Заявки".
+
+        lead — словарь с полями:
+            name, phone, tour, dates, tourists, budget,
+            tg_id, tg_user, source
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return False
+
+        try:
+            ws = ss.worksheet(SHEET_LEADS)
+            row = [
+                datetime.now().strftime("%d.%m.%Y %H:%M"),
+                lead.get("name", "—"),
+                lead.get("phone", "—"),
+                lead.get("tour", "—"),
+                lead.get("dates", "—"),
+                lead.get("tourists", "—"),
+                lead.get("budget", "—"),
+                lead.get("tg_id", "—"),
+                lead.get("tg_user", "—"),
+                lead.get("source", "—"),
+                "Новая",    # начальный статус
+                "",         # комментарий — заполняет менеджер
+            ]
+            ws.append_row(row)
+            print(f"✅ Sheets: заявка добавлена — {lead.get('name')}")
+            return True
+        except Exception as e:
+            print(f"❌ Sheets: ошибка добавления заявки: {e}")
+            return False
+
+    def update_lead_status(self, row_number: int,
+                            status: str, comment: str = "") -> bool:
+        """
+        Обновляет статус заявки.
+        Менеджер меняет статус после звонка: Новая → В работе → Куплено/Отказ
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return False
+
+        try:
+            ws = ss.worksheet(SHEET_LEADS)
+            # Колонки K=11 (Статус) и L=12 (Комментарий)
+            ws.update_cell(row_number, 11, status)
+            if comment:
+                ws.update_cell(row_number, 12, comment)
+            return True
+        except Exception as e:
+            print(f"❌ Sheets: ошибка обновления статуса: {e}")
+            return False
+
+    def get_all_leads(self) -> list[dict]:
+        """
+        Возвращает все заявки из таблицы.
+        Используется для рассылок и аналитики.
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return []
+
+        try:
+            ws = ss.worksheet(SHEET_LEADS)
+            records = ws.get_all_records()
+            return records
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения: {e}")
+            return []
