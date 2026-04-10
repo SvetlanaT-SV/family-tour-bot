@@ -155,19 +155,15 @@ class TourvisorClient:
         Нужно чтобы найти код Уфы.
         """
         data = self._get("list.php", {"type": "departure"})
-        # API возвращает: {"data": {"departures": [{"id": 8, "name": "Уфа"}, ...]}}
-        departures = data.get("data", {}).get("departures", [])
-        if not departures:
-            # Иногда структура другая
-            departures = data.get("departures", [])
-        return departures
+        # API возвращает: {"lists": {"departures": {"departure": [...]}}}
+        return data.get("lists", {}).get("departures", {}).get("departure", [])
 
     def get_countries(self) -> list[dict]:
         """
         Возвращает список стран назначения с кодами.
         """
         data = self._get("list.php", {"type": "country"})
-        return data.get("data", {}).get("countries", [])
+        return data.get("lists", {}).get("countries", {}).get("country", [])
 
     def find_city_id(self, city_name: str) -> Optional[int]:
         """
