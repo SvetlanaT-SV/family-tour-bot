@@ -210,6 +210,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str)
 
     if api_key:
+      try:
         client = anthropic.Anthropic(api_key=api_key)
         prompt = f"""Ты — копирайтер турагентства «Family Tour» (Уфа). Напиши продающий пост для Telegram с HTML-разметкой.
 
@@ -240,6 +241,8 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
         if link_line:
             post += link_line
         return post
+      except Exception:
+        pass  # Если API недоступен — используем шаблон
 
     # Шаблонный вариант без ИИ
     if stars.isdigit() and int(stars) >= 5:
