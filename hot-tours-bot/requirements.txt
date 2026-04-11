@@ -1,6 +1,6 @@
 requests==2.31.0
 python-dotenv==1.0.0
-anthropic==0.25.0
+anthropic>=0.50.0
 python-telegram-bot==21.9
 vk-api==11.9.9
 gspread==6.0.2
