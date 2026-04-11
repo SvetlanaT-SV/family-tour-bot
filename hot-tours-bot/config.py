@@ -6,10 +6,19 @@ config.py — Настройки приложения
 """
 
 import os
+import json
 from dotenv import load_dotenv
 
 # Загружаем переменные из файла .env в текущую папке
 load_dotenv()
+
+# Если на сервере задана переменная GOOGLE_CREDENTIALS_JSON —
+# записываем её в файл (нужно для Railway/облака)
+_creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+if _creds_json:
+    _creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
+    with open(_creds_file, "w", encoding="utf-8") as _f:
+        _f.write(_creds_json)
 
 
 class Config:
