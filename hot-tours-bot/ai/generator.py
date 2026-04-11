@@ -124,6 +124,80 @@ def generate_post(tour: Tour, api_key: str) -> str:
     return post
 
 
+def generate_post_from_dict(data: dict, api_key: str = "") -> str:
+    """
+    Генерирует пост из словаря с данными тура (из Google Sheets).
+
+    data — строка из листа 'Туры к публикации':
+        Страна, Курорт, Отель, Звёзды, Питание,
+        Дата вылета, Ночей, Цена/чел, Ссылка
+
+    Если api_key не задан — генерирует по шаблону без ИИ.
+    """
+    country  = data.get("Страна", "")
+    resort   = data.get("Курорт", "")
+    hotel    = data.get("Отель", "")
+    stars    = str(data.get("Звёзды", ""))
+    meal     = data.get("Питание", "")
+    date     = data.get("Дата вылета", "")
+    nights   = str(data.get("Ночей", ""))
+    price    = str(data.get("Цена/чел", ""))
+    link     = data.get("Ссылка", "")
+
+    stars_str = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
+    nights_str = f"{nights} {_nights_word(int(nights))}" if nights.isdigit() else f"{nights} ночей"
+    price_str = f"{int(float(price)):,}".replace(",", " ") + " ₽" if price else "уточняйте"
+    link_line = f"\n🔗 Подробнее: {link}" if link else ""
+
+    if api_key:
+        client = anthropic.Anthropic(api_key=api_key)
+        prompt = f"""Ты — копирайтер турагентства «Family Tour» (Уфа). Напиши продающий пост для ВК и Telegram.
+
+Данные тура:
+- Страна/курорт: {country}, {resort}
+- Отель: {hotel} {stars_str}
+- Питание: {meal}
+- Вылет: {date}, {nights_str}
+- Цена: от {price_str}/чел
+
+Структура поста:
+1. Первая строка: 🔥 ГОРЯЩИЙ ТУР! {country}
+2. Блок деталей (✈️ вылет, 🏨 отель, 🍽 питание, 💰 цена)
+3. 1-2 атмосферных предложения об отдыхе
+4. 3-4 преимущества с ✅
+5. Призыв: «Пишите — забронируем!»
+6. Хэштеги: #горящийтур #{_country_tag(country)} #турагентствоУфа #FamilyTour
+
+Стиль: живой, дружелюбный, как советует подруга. Без воды."""
+
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        post = msg.content[0].text.strip()
+        if link_line:
+            post += link_line
+        return post
+
+    # Шаблонный вариант без ИИ
+    return f"""🔥 ГОРЯЩИЙ ТУР! {country}
+
+✈️ Вылет: {date} из Уфы ({nights_str})
+🏨 Отель: {hotel} {stars_str}
+🍽 Питание: {meal}
+💰 Цена: от {price_str}/чел
+
+✅ Горящее предложение — мест мало!
+✅ Вылет из Уфы
+✅ {meal} — всё включено{link_line}
+
+📩 Пишите — забронируем прямо сейчас!
+⚡ Количество мест ограничено!
+
+#горящийтур #{_country_tag(country)} #турагентствоУфа #FamilyTour"""
+
+
 def generate_post_without_ai(tour: Tour) -> str:
     """
     Генерирует пост БЕЗ Claude API — только по шаблону.

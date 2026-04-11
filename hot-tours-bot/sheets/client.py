@@ -28,8 +28,26 @@ SCOPES = [
 ]
 
 # Названия листов таблицы
-SHEET_LEADS   = "Заявки"    # сюда пишем новые заявки
-SHEET_CLIENTS = "Клиенты"   # сюда пишем обновлённые данные клиентов
+SHEET_LEADS   = "Заявки"              # сюда пишем новые заявки от клиентов
+SHEET_CLIENTS = "Клиенты"             # обновлённые данные клиентов
+SHEET_TOURS   = "Туры к публикации"   # менеджер вносит туры, бот публикует
+
+# Заголовки листа "Туры к публикации"
+TOURS_HEADERS = [
+    "Статус",       # НОВЫЙ / ПУБЛИКУЕТСЯ / ОПУБЛИКОВАН / ОШИБКА
+    "Страна",       # Турция
+    "Курорт",       # Анталья
+    "Отель",        # Rixos Premium Belek
+    "Звёзды",       # 5
+    "Питание",      # AI, UAI, HB, BB, FB
+    "Дата вылета",  # 15.04.2026
+    "Ночей",        # 7
+    "Цена/чел",     # 45000
+    "Фото URL",     # ссылка на фото (необязательно)
+    "Ссылка",       # ссылка для бронирования (необязательно)
+    "Опубликован",  # дата/время публикации (заполняет бот)
+    "Ошибка",       # текст ошибки (заполняет бот)
+]
 
 # Заголовки колонок в листе "Заявки"
 LEADS_HEADERS = [
@@ -104,6 +122,13 @@ class SheetsClient:
             ss.add_worksheet(title=SHEET_CLIENTS, rows=1000, cols=20)
             print(f"✅ Sheets: создан лист '{SHEET_CLIENTS}'")
 
+        # Создаём лист "Туры к публикации" если нет
+        if SHEET_TOURS not in existing:
+            ws = ss.add_worksheet(title=SHEET_TOURS, rows=500, cols=len(TOURS_HEADERS))
+            ws.append_row(TOURS_HEADERS)
+            ws.format(f"A1:{chr(64 + len(TOURS_HEADERS))}1", {"textFormat": {"bold": True}})
+            print(f"✅ Sheets: создан лист '{SHEET_TOURS}'")
+
     def add_lead(self, lead: dict) -> bool:
         """
         Добавляет новую заявку строкой в лист "Заявки".
@@ -159,6 +184,52 @@ class SheetsClient:
         except Exception as e:
             print(f"❌ Sheets: ошибка обновления статуса: {e}")
             return False
+
+    # ── Методы для работы с турами к публикации ──────────────────
+
+    def get_pending_tours(self) -> list[dict]:
+        """
+        Возвращает туры со статусом 'НОВЫЙ' из листа 'Туры к публикации'.
+        Бот вызывает этот метод каждые 5 минут.
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return []
+        try:
+            ws = ss.worksheet(SHEET_TOURS)
+            rows = ws.get_all_records()
+            pending = []
+            for i, row in enumerate(rows, start=2):  # строка 1 — заголовки
+                if str(row.get("Статус", "")).strip().upper() == "НОВЫЙ":
+                    row["_row_number"] = i
+                    pending.append(row)
+            return pending
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения туров: {e}")
+            return []
+
+    def mark_tour_status(self, row_number: int, status: str,
+                          published_at: str = "", error: str = "") -> None:
+        """
+        Обновляет статус тура после публикации.
+        Вызывается ботом после успешной публикации или ошибки.
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return
+        try:
+            ws = ss.worksheet(SHEET_TOURS)
+            ws.update_cell(row_number, 1, status)         # A = Статус
+            if published_at:
+                ws.update_cell(row_number, 12, published_at)  # L = Опубликован
+            if error:
+                ws.update_cell(row_number, 13, error)         # M = Ошибка
+        except Exception as e:
+            print(f"❌ Sheets: ошибка обновления статуса тура: {e}")
+
+    def mark_tour_publishing(self, row_number: int) -> None:
+        """Ставит статус 'ПУБЛИКУЕТСЯ' — защита от двойной публикации"""
+        self.mark_tour_status(row_number, "ПУБЛИКУЕТСЯ")
 
     def get_all_leads(self) -> list[dict]:
         """

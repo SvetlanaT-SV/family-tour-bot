@@ -2,24 +2,28 @@
 main.py — Точка входа. Запускает всю систему.
 
 Что делает:
-  1. Каждые 4 часа (09:30, 14:00, 19:00) ищет горящие туры
-  2. Генерирует красивый пост через ИИ
-  3. Публикует в ВК, Telegram, MAX
-  4. Параллельно держит бота для сбора заявок
+  1. Каждые 5 минут проверяет лист "Туры к публикации" в Google Sheets
+  2. Находит туры со статусом НОВЫЙ → генерирует пост → публикует
+  3. Параллельно держит Telegram-бота для сбора заявок от клиентов
+
+Источник туров: Google Sheets (лист "Туры к публикации")
+  - Менеджер вносит тур вручную (2 минуты)
+  - Бот публикует автоматически, меняет статус на ОПУБЛИКОВАН
 
 Запуск:  python main.py
 """
 
 import asyncio
 import logging
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from config import Config
-from tourvisor.client import TourvisorClient
-from ai.generator import generate_post, generate_post_without_ai
+from ai.generator import generate_post_from_dict
 from publisher.telegram import TelegramPublisher
 from publisher.vk import VKPublisher
+from sheets.client import SheetsClient
 from bot.handler import build_application
 
 logging.basicConfig(
@@ -32,89 +36,95 @@ logger = logging.getLogger(__name__)
 APPROVAL_MODE = True   # первую неделю держим True
 
 
-async def publish_hot_tour():
+async def publish_from_sheets():
     """
-    Главная задача по расписанию.
-    Ищет тур → генерирует пост → публикует или отправляет на одобрение.
+    Проверяет Google Sheets каждые 5 минут.
+    Берёт туры со статусом НОВЫЙ и публикует их.
     """
-    logger.info("⏰ Запускаю поиск горящих туров...")
-
-    tv = TourvisorClient(Config.TOURVISOR_LOGIN, Config.TOURVISOR_PASSWORD)
-    ufa_id = tv.find_city_id("Уфа")
-    if not ufa_id:
-        logger.error("Не нашли код Уфы")
+    if not Config.GOOGLE_CREDENTIALS_FILE or not Config.GOOGLE_SHEET_ID:
         return
 
-    tours = tv.find_hot_tours(
-        departure_id=ufa_id,
-        nights_from=Config.NIGHTS_FROM,
-        nights_to=Config.NIGHTS_TO,
-        days_ahead=Config.DAYS_AHEAD,
-        price_max=Config.MAX_PRICE,
-    )
+    sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+    pending = sheets.get_pending_tours()
 
-    if not tours:
-        logger.warning("Горящих туров не найдено")
+    if not pending:
         return
 
-    tour = tours[0]
-    logger.info(f"Выбран тур: {tour.hotel_name}, {tour.country}, {tour.formatted_price_per_person}/чел")
+    logger.info(f"📋 Sheets: найдено {len(pending)} тура(ов) к публикации")
 
-    # Генерируем текст
-    if Config.ANTHROPIC_API_KEY:
-        text = generate_post(tour, Config.ANTHROPIC_API_KEY)
-    else:
-        text = generate_post_without_ai(tour)
+    for tour_row in pending:
+        row_num = tour_row["_row_number"]
+        name = f"{tour_row.get('Отель', '?')} / {tour_row.get('Страна', '?')}"
 
-    tg = TelegramPublisher(
-        token=Config.TELEGRAM_BOT_TOKEN,
-        channel_id=Config.TELEGRAM_CHANNEL_ID,
-        admin_id=Config.TELEGRAM_ADMIN_ID,
-    )
+        # Сразу ставим ПУБЛИКУЕТСЯ — чтобы не задублировать при следующей проверке
+        sheets.mark_tour_publishing(row_num)
 
-    if APPROVAL_MODE:
-        # Режим одобрения: отправляем руководителю
-        tg.send_approval_request(text, tour.photo_url, tour.tour_id)
-        logger.info("Пост отправлен руководителю на одобрение")
-    else:
-        # Автопилот: публикуем сразу везде
-        if Config.TELEGRAM_BOT_TOKEN:
-            tg.publish(text, tour.photo_url)
+        try:
+            # Генерируем текст поста
+            logger.info(f"  Генерирую пост: {name}")
+            text = generate_post_from_dict(tour_row, Config.ANTHROPIC_API_KEY)
+            photo_url = tour_row.get("Фото URL", "").strip() or None
 
-        if Config.VK_TOKEN and Config.VK_GROUP_ID:
-            vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
-            vk.publish(text, tour.photo_url)
+            tg = TelegramPublisher(
+                token=Config.TELEGRAM_BOT_TOKEN,
+                channel_id=Config.TELEGRAM_CHANNEL_ID,
+                admin_id=Config.TELEGRAM_ADMIN_ID,
+            )
 
-        tg.notify_admin(
-            f"✅ Автоматически опубликован тур:\n"
-            f"{tour.hotel_name}, {tour.country}\n"
-            f"{tour.formatted_price_per_person}/чел, вылет {tour.date_from}"
-        )
-        logger.info("Пост опубликован в автопилоте")
+            if APPROVAL_MODE:
+                # Режим одобрения: шлём руководителю превью
+                tour_id = f"sheets_{row_num}"
+                tg.send_approval_request(text, photo_url, tour_id)
+                sheets.mark_tour_status(row_num, "НА ОДОБРЕНИИ",
+                                         published_at=datetime.now().strftime("%d.%m.%Y %H:%M"))
+                logger.info(f"  📨 Отправлено на одобрение: {name}")
+            else:
+                # Автопилот: публикуем сразу везде
+                if Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHANNEL_ID:
+                    tg.publish(text, photo_url)
+                    logger.info(f"  ✅ Telegram: {name}")
+
+                if Config.VK_TOKEN and Config.VK_GROUP_ID:
+                    vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
+                    vk.publish(text, photo_url)
+                    logger.info(f"  ✅ ВК: {name}")
+
+                sheets.mark_tour_status(
+                    row_num, "ОПУБЛИКОВАН",
+                    published_at=datetime.now().strftime("%d.%m.%Y %H:%M")
+                )
+                tg.notify_admin(f"✅ Опубликован тур:\n{name}\n{text[:200]}...")
+
+            # Небольшая пауза между публикациями если несколько туров
+            await asyncio.sleep(3)
+
+        except Exception as e:
+            logger.error(f"  ❌ Ошибка публикации {name}: {e}")
+            sheets.mark_tour_status(row_num, "ОШИБКА", error=str(e))
 
 
 async def main():
     """Запускает планировщик и Telegram-бота"""
 
     logger.info("🚀 Family Tour Bot запускается...")
+    logger.info(f"   Режим: {'одобрение' if APPROVAL_MODE else 'автопилот'}")
 
-    # Планировщик публикаций
+    # ── Планировщик: проверяем Sheets каждые 5 минут ──
     scheduler = AsyncIOScheduler()
-    for hour in Config.PUBLISH_HOURS:
-        scheduler.add_job(
-            publish_hot_tour,
-            CronTrigger(hour=hour, minute=30),  # в XX:30
-            id=f"publish_{hour}",
-        )
+    scheduler.add_job(
+        publish_from_sheets,
+        IntervalTrigger(minutes=5),
+        id="sheets_check",
+    )
     scheduler.start()
-    logger.info(f"✅ Планировщик запущен: публикации в {Config.PUBLISH_HOURS}")
+    logger.info("✅ Планировщик запущен: проверка Sheets каждые 5 минут")
 
-    # Запускаем Telegram-бота
+    # ── Telegram-бот для сбора заявок ──
     app = build_application()
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    logger.info("✅ Telegram-бот запущен")
+    logger.info("✅ Telegram-бот запущен (сбор заявок от клиентов)")
 
     # Держим процесс живым
     try:
