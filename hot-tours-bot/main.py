@@ -65,7 +65,12 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
 
             if APPROVAL_MODE:
                 tour_id = f"sheets_{row_num}"
-                tg.send_approval_request(text, photo_url, tour_id)
+                msg_id = tg.send_approval_request(text, photo_url, tour_id)
+                if msg_id is None:
+                    raise Exception(
+                        f"Telegram не принял сообщение. "
+                        f"Проверь токен бота и TELEGRAM_ADMIN_ID={Config.TELEGRAM_ADMIN_ID}"
+                    )
                 sheets.mark_tour_status(row_num, "НА ОДОБРЕНИИ",
                                          published_at=datetime.now().strftime("%d.%m.%Y %H:%M"))
                 logger.info(f"  📨 Отправлено на одобрение: {name}")
