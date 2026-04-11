@@ -57,24 +57,41 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
             text = generate_post_from_dict(tour_row, Config.ANTHROPIC_API_KEY)
             photo_url = tour_row.get("Фото URL", "").strip() or None
 
-            tg = TelegramPublisher(
-                token=Config.TELEGRAM_BOT_TOKEN,
-                channel_id=Config.TELEGRAM_CHANNEL_ID,
-                admin_id=Config.TELEGRAM_ADMIN_ID,
-            )
+            bot = context.bot  # используем уже авторизованного бота
 
             if APPROVAL_MODE:
                 tour_id = f"sheets_{row_num}"
-                msg_id = tg.send_approval_request(text, photo_url, tour_id)
-                if msg_id is None:
-                    raise Exception(
-                        f"Telegram не принял сообщение. "
-                        f"Проверь токен бота и TELEGRAM_ADMIN_ID={Config.TELEGRAM_ADMIN_ID}"
+                preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
+                keyboard = {"inline_keyboard": [[
+                    {"text": "✅ Опубликовать", "callback_data": f"approve_{tour_id}"},
+                    {"text": "❌ Пропустить",   "callback_data": f"reject_{tour_id}"},
+                ]]}
+
+                if photo_url:
+                    await bot.send_photo(
+                        chat_id=Config.TELEGRAM_ADMIN_ID,
+                        photo=photo_url,
+                        caption=preview,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
                     )
+                else:
+                    await bot.send_message(
+                        chat_id=Config.TELEGRAM_ADMIN_ID,
+                        text=preview,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                    )
+
                 sheets.mark_tour_status(row_num, "НА ОДОБРЕНИИ",
                                          published_at=datetime.now().strftime("%d.%m.%Y %H:%M"))
                 logger.info(f"  📨 Отправлено на одобрение: {name}")
             else:
+                tg = TelegramPublisher(
+                    token=Config.TELEGRAM_BOT_TOKEN,
+                    channel_id=Config.TELEGRAM_CHANNEL_ID,
+                    admin_id=Config.TELEGRAM_ADMIN_ID,
+                )
                 if Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHANNEL_ID:
                     tg.publish(text, photo_url)
 
@@ -86,7 +103,11 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     row_num, "ОПУБЛИКОВАН",
                     published_at=datetime.now().strftime("%d.%m.%Y %H:%M")
                 )
-                tg.notify_admin(f"✅ Опубликован тур:\n{name}\n{text[:200]}...")
+                await bot.send_message(
+                    chat_id=Config.TELEGRAM_ADMIN_ID,
+                    text=f"✅ Опубликован тур:\n{name}\n{text[:200]}...",
+                    parse_mode="HTML",
+                )
 
         except Exception as e:
             logger.error(f"  ❌ Ошибка публикации {name}: {e}")
