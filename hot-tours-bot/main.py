@@ -11,6 +11,7 @@ main.py — Точка входа. Запускает всю систему.
 
 import logging
 from datetime import datetime
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, ContextTypes
 
 from config import Config
@@ -62,10 +63,10 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
             if APPROVAL_MODE:
                 tour_id = f"sheets_{row_num}"
                 preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
-                keyboard = {"inline_keyboard": [[
-                    {"text": "✅ Опубликовать", "callback_data": f"approve_{tour_id}"},
-                    {"text": "❌ Пропустить",   "callback_data": f"reject_{tour_id}"},
-                ]]}
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{tour_id}"),
+                    InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
+                ]])
 
                 if photo_url:
                     await bot.send_photo(
