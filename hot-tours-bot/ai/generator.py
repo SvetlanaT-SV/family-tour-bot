@@ -202,7 +202,10 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     stars_str  = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
     meal_ru    = _meal_ru(meal)
     nights_str = f"{nights} {_nights_word(int(nights))}" if nights.isdigit() else f"{nights} ночей"
-    price_str  = f"{int(float(price)):,}".replace(",", " ") + " ₽" if price else "уточняйте"
+    # Очищаем цену от лишних символов (₽, /чел, пробелы, запятые)
+    import re as _re
+    price_clean = _re.sub(r"[^\d.]", "", price)
+    price_str  = f"{int(float(price_clean)):,}".replace(",", " ") + " ₽" if price_clean else "уточняйте"
     link_line  = f"\n🔗 Подробнее: {link}" if link else ""
     headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str)
 
