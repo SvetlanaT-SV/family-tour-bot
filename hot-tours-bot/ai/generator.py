@@ -8,26 +8,52 @@ Claude Haiku — самая дешёвая модель, стоит ~0.1₽ за
 """
 
 import anthropic
+import random
 from tourvisor.client import Tour
 
 
 # Шаблон поста — Claude заполняет [ОПИСАНИЕ] и [ПРЕИМУЩЕСТВА]
-POST_TEMPLATE = """🔥 ГОРЯЩИЙ ТУР! {country}
+POST_TEMPLATE = """<b>🔥 ГОРЯЩИЙ ТУР! {country}</b>
 
 ✈️ Вылет: {date_from} из {city_from} ({nights} {nights_word})
-🏨 {hotel_name} {stars}
+🏨 <b>{hotel_name}</b> {stars}
 🍽 Питание: {meal}
 {sea_line}
-💰 Цена: {price_per_person}/чел
+💰 Цена: <b>{price_per_person}/чел</b>
 
 {ai_description}
 
 {ai_advantages}
 
-📩 Хотите забронировать? Напишите нам!
+📩 Написать нам: <b>@hottourpegas_bot</b>
 ⚡ Количество мест ограничено!
 
-#горящийтур #{country_tag} #турагентствоУфа #FamilyTour"""
+#горящийтур #{country_tag}"""
+
+
+# Перевод кодов питания на русский язык
+MEAL_RU = {
+    "AI":                   "Всё включено",
+    "ALL":                  "Всё включено",
+    "All Inclusive":        "Всё включено",
+    "UAI":                  "Ультра всё включено",
+    "Ultra All Inclusive":  "Ультра всё включено",
+    "HB":                   "Полупансион",
+    "Half Board":           "Полупансион",
+    "FB":                   "Полный пансион",
+    "Full Board":           "Полный пансион",
+    "BB":                   "Завтрак",
+    "Bed & Breakfast":      "Завтрак",
+    "Bed and Breakfast":    "Завтрак",
+    "RO":                   "Без питания",
+    "Room Only":            "Без питания",
+    "SC":                   "Без питания",
+}
+
+
+def _meal_ru(meal: str) -> str:
+    """Возвращает русское название типа питания, если код известен."""
+    return MEAL_RU.get(meal.strip(), meal)
 
 
 def _nights_word(n: int) -> str:
@@ -45,6 +71,35 @@ def _nights_word(n: int) -> str:
 def _country_tag(country: str) -> str:
     """Превращает название страны в хэштег: 'ОАЭ' → 'ОАЭ'"""
     return country.replace(" ", "_")
+
+
+def _random_headline(country: str, hotel: str, nights: str,
+                     price_str: str, meal_ru: str, stars_str: str) -> str:
+    """
+    Случайный цепляющий заголовок для поста.
+    Каждый раз другой — чтобы лента не выглядела однотипной.
+    """
+    templates = [
+        f"🔥 Горящий тур в {country} — мест почти нет!",
+        f"✈️ Улетаем в {country}? Осталось несколько мест!",
+        f"🌴 {country} по горящей цене — успей забронировать!",
+        f"💥 {hotel} в {country} — вот это цена!",
+        f"🤩 Мечтала об {country}? Вот твой шанс!",
+        f"⚡ {nights} ночей в {country} — и это реально!",
+        f"🏖 {country}: отдых мечты за разумные деньги",
+        f"🌊 Море, солнце, {meal_ru} — {country} ждёт!",
+        f"😍 {hotel} {stars_str} в {country} — по цене, которую ты не ожидала",
+        f"🎯 Идеальный вариант найден: {country}, {hotel}",
+        f"🚀 Собирай чемодан! Горящий тур в {country}",
+        f"💫 Лучшая цена этой недели — {country} от {price_str}/чел",
+        f"🌟 {country}: {nights} ночей {meal_ru.lower()} — по такой цене надолго не задержится",
+        f"🏝 Хочешь в отпуск? {country} — это реально!",
+        f"🔑 Твой билет на море: {hotel}, {country}",
+        f"👀 Смотри, что мы нашли: {country}, {hotel} {stars_str}",
+        f"💃 Отдых в {country} — дешевле чем думаешь!",
+        f"🙌 Наконец-то! {country} по цене, которую ждала",
+    ]
+    return random.choice(templates)
 
 
 def generate_post(tour: Tour, api_key: str) -> str:
@@ -113,7 +168,7 @@ def generate_post(tour: Tour, api_key: str) -> str:
         nights_word      = _nights_word(tour.nights),
         hotel_name       = tour.hotel_name,
         stars            = tour.stars_str,
-        meal             = tour.meal_label,
+        meal             = _meal_ru(tour.meal_label),
         sea_line         = sea_line,
         price_per_person = tour.formatted_price_per_person,
         ai_description   = ai_description,
@@ -144,31 +199,34 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     price    = str(data.get("Цена/чел", ""))
     link     = data.get("Ссылка", "")
 
-    stars_str = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
+    stars_str  = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
+    meal_ru    = _meal_ru(meal)
     nights_str = f"{nights} {_nights_word(int(nights))}" if nights.isdigit() else f"{nights} ночей"
-    price_str = f"{int(float(price)):,}".replace(",", " ") + " ₽" if price else "уточняйте"
-    link_line = f"\n🔗 Подробнее: {link}" if link else ""
+    price_str  = f"{int(float(price)):,}".replace(",", " ") + " ₽" if price else "уточняйте"
+    link_line  = f"\n🔗 Подробнее: {link}" if link else ""
+    headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str)
 
     if api_key:
         client = anthropic.Anthropic(api_key=api_key)
-        prompt = f"""Ты — копирайтер турагентства «Family Tour» (Уфа). Напиши продающий пост для ВК и Telegram.
+        prompt = f"""Ты — копирайтер турагентства «Family Tour» (Уфа). Напиши продающий пост для Telegram с HTML-разметкой.
 
 Данные тура:
 - Страна/курорт: {country}, {resort}
 - Отель: {hotel} {stars_str}
-- Питание: {meal}
+- Питание: {meal_ru}
 - Вылет: {date}, {nights_str}
 - Цена: от {price_str}/чел
 
-Структура поста:
-1. Первая строка: 🔥 ГОРЯЩИЙ ТУР! {country}
-2. Блок деталей (✈️ вылет, 🏨 отель, 🍽 питание, 💰 цена)
+Структура поста (строго):
+1. Первая строка — цепляющий заголовок в тегах <b>...</b>. Он должен быть уникальным, вызывать желание читать дальше и купить тур. НЕ используй шаблонное «🔥 ГОРЯЩИЙ ТУР!» — придумай что-то живое. Например: «😍 Мечтала о Турции? Вот твой шанс!» или «⚡ {hotel} — и это горящая цена!» или «🌊 Море, солнце, {meal_ru} — {country} ждёт!»
+2. Блок деталей: ✈️ вылет, 🏨 <b>название отеля</b>, 🍽 питание по-русски, 💰 <b>цена</b>
 3. 1-2 атмосферных предложения об отдыхе
 4. 3-4 преимущества с ✅
-5. Призыв: «Пишите — забронируем!»
-6. Хэштеги: #горящийтур #{_country_tag(country)} #турагентствоУфа #FamilyTour
+5. Строка: 📩 Написать нам: <b>@hottourpegas_bot</b>
+6. ⚡ Количество мест ограничено!
+7. Хэштеги: #горящийтур #{_country_tag(country)}
 
-Стиль: живой, дружелюбный, как советует подруга. Без воды."""
+Стиль: живой, дружелюбный, как советует подруга. Без воды. Используй только HTML-теги <b> для жирного."""
 
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -181,21 +239,47 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
         return post
 
     # Шаблонный вариант без ИИ
-    return f"""🔥 ГОРЯЩИЙ ТУР! {country}
+    if stars.isdigit() and int(stars) >= 5:
+        description = f"Роскошный отель премиум-класса в самом сердце {resort}. Идеально для тех, кто ценит высокий сервис и комфорт."
+    elif stars.isdigit() and int(stars) >= 4:
+        description = f"Отличный отель в {resort} с высоким уровнем сервиса. Прекрасный выбор для семейного отдыха и пар."
+    else:
+        description = f"Комфортный отдых в {resort} по отличной цене. Всё необходимое для незабываемого путешествия."
+
+    # Преимущества — без дублей
+    advantages = []
+    if meal in ("AI", "UAI", "Ultra All Inclusive", "All Inclusive", "Ultra All inclusive"):
+        advantages.append("✅ Всё включено — еда, напитки, развлечения")
+    elif meal in ("HB", "Half Board"):
+        advantages.append("✅ Полупансион — завтрак и ужин включены")
+    elif meal in ("BB", "Bed & Breakfast", "Bed and Breakfast"):
+        advantages.append("✅ Завтрак включён")
+
+    if stars.isdigit() and int(stars) >= 5:
+        advantages.append(f"✅ Отель {stars}⭐ — премиум уровень сервиса")
+    elif stars.isdigit() and int(stars) >= 4:
+        advantages.append(f"✅ Отель {stars}⭐ — высокий уровень комфорта")
+
+    advantages.append("✅ Вылет из Уфы — не нужно добираться до Москвы")
+    advantages.append("✅ Горящая цена — успей забронировать!")
+
+    advantages_str = "\n".join(advantages)
+
+    return f"""<b>{headline}</b>
 
 ✈️ Вылет: {date} из Уфы ({nights_str})
-🏨 Отель: {hotel} {stars_str}
-🍽 Питание: {meal}
-💰 Цена: от {price_str}/чел
+🏨 <b>{hotel}</b> {stars_str}
+🍽 Питание: {meal_ru}
+💰 Цена: от <b>{price_str}/чел</b>
 
-✅ Горящее предложение — мест мало!
-✅ Вылет из Уфы
-✅ {meal} — всё включено{link_line}
+{description}
 
-📩 Пишите — забронируем прямо сейчас!
+{advantages_str}{link_line}
+
+📩 Написать нам: <b>@hottourpegas_bot</b>
 ⚡ Количество мест ограничено!
 
-#горящийтур #{_country_tag(country)} #турагентствоУфа #FamilyTour"""
+#горящийтур #{_country_tag(country)}"""
 
 
 def generate_post_without_ai(tour: Tour) -> str:
@@ -221,7 +305,7 @@ def generate_post_without_ai(tour: Tour) -> str:
         nights_word      = _nights_word(tour.nights),
         hotel_name       = tour.hotel_name,
         stars            = tour.stars_str,
-        meal             = tour.meal_label,
+        meal             = _meal_ru(tour.meal_label),
         sea_line         = sea_line,
         price_per_person = tour.formatted_price_per_person,
         ai_description   = f"Отличный отдых в {tour.country} ждёт вас!",
