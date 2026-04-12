@@ -238,12 +238,12 @@ async def handle_approval(update: Update,
     if data.startswith("approve_"):
         tour_id = data.replace("approve_", "")
 
-        # Берём текст поста из сообщения (убираем шапку «НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:»)
+        # Берём текст поста из сообщения (убираем шапку «📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:»)
         msg = query.message
         raw = msg.caption or msg.text or ""
-        # Убираем первую строку-заголовок
-        lines = raw.split("\n", 3)
-        post_text = lines[3].strip() if len(lines) > 3 else raw
+        # Шапка отделена от поста двойным переносом строки
+        parts = raw.split("\n\n", 1)
+        post_text = parts[1].strip() if len(parts) > 1 else raw
 
         try:
             if msg.photo:
