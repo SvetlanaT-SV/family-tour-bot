@@ -60,6 +60,7 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
 
         try:
             logger.info(f"  Генерирую пост: {name}")
+            logger.info(f"  Данные тура: { {k: v for k, v in tour_row.items() if not k.startswith('_')} }")
             text = generate_post_from_dict(tour_row, Config.ANTHROPIC_API_KEY)
             photo_url = str(tour_row.get("Фото URL", "") or "").strip() or None
 
