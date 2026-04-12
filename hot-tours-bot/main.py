@@ -10,6 +10,8 @@ main.py — Точка входа. Запускает всю систему.
 """
 
 import logging
+import requests as _requests
+from io import BytesIO
 from datetime import datetime
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, ContextTypes
@@ -71,16 +73,21 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                 sent = False
                 if photo_url:
                     try:
-                        await bot.send_photo(
-                            chat_id=Config.TELEGRAM_ADMIN_ID,
-                            photo=photo_url,
-                            caption=preview,
-                            parse_mode="HTML",
-                            reply_markup=keyboard,
-                        )
-                        sent = True
-                    except Exception:
-                        pass  # фото не загрузилось — отправим без него
+                        # Скачиваем фото сами — обходим блокировки сайтов
+                        resp = _requests.get(photo_url, timeout=10, headers={
+                            "User-Agent": "Mozilla/5.0"
+                        })
+                        if resp.status_code == 200:
+                            await bot.send_photo(
+                                chat_id=Config.TELEGRAM_ADMIN_ID,
+                                photo=BytesIO(resp.content),
+                                caption=preview,
+                                parse_mode="HTML",
+                                reply_markup=keyboard,
+                            )
+                            sent = True
+                    except Exception as photo_err:
+                        logger.warning(f"  Фото не загрузилось: {photo_err}")
                 if not sent:
                     await bot.send_message(
                         chat_id=Config.TELEGRAM_ADMIN_ID,
