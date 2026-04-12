@@ -219,40 +219,52 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # ── Обработчик кнопок одобрения (для руководителя) ───────────
 
-async def handle_approval(update: Update,
-                            context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_approval(update: Update,
+                            context: ContextTypes.DEFAULT_TYPE,
+                            pending_posts: dict) -> None:
     """
     Обрабатывает нажатие кнопок ✅/❌ в превью поста.
     Срабатывает только у руководителя (проверяем admin_id).
     """
     query = update.callback_query
-    await query.answer()  # убираем индикатор загрузки на кнопке
+    await query.answer()
 
-    # Проверяем что нажал именно руководитель
     if query.from_user.id != Config.TELEGRAM_ADMIN_ID:
         await query.answer("⛔ Только для администратора", show_alert=True)
         return
 
-    data = query.data  # например "approve_tour123" или "reject_tour123"
+    data = query.data
+    msg = query.message
 
     if data.startswith("approve_"):
         tour_id = data.replace("approve_", "")
 
-        # Берём текст поста из сообщения (убираем шапку «📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:»)
-        msg = query.message
-        raw = msg.caption or msg.text or ""
-        # Шапка отделена от поста двойным переносом строки
-        parts = raw.split("\n\n", 1)
-        post_text = parts[1].strip() if len(parts) > 1 else raw
+        # Берём оригинальный пост с HTML из хранилища
+        stored = pending_posts.get(tour_id, {})
+        post_text = stored.get("text", "")
+        photo_url = stored.get("photo_url", "")
 
         try:
-            if msg.photo:
-                await context.bot.send_photo(
-                    chat_id=Config.TELEGRAM_CHANNEL_ID,
-                    photo=msg.photo[-1].file_id,
-                    caption=post_text,
-                    parse_mode="HTML",
-                )
+            if photo_url:
+                try:
+                    import requests as _req
+                    from io import BytesIO
+                    resp = _req.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                    if resp.status_code == 200:
+                        await context.bot.send_photo(
+                            chat_id=Config.TELEGRAM_CHANNEL_ID,
+                            photo=BytesIO(resp.content),
+                            caption=post_text,
+                            parse_mode="HTML",
+                        )
+                    else:
+                        raise Exception("фото недоступно")
+                except Exception:
+                    await context.bot.send_message(
+                        chat_id=Config.TELEGRAM_CHANNEL_ID,
+                        text=post_text,
+                        parse_mode="HTML",
+                    )
             else:
                 await context.bot.send_message(
                     chat_id=Config.TELEGRAM_CHANNEL_ID,
@@ -266,36 +278,47 @@ async def handle_approval(update: Update,
                 sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
                 sheets.mark_tour_status(row_num, "ОПУБЛИКОВАН")
 
-            caption_update = (msg.caption or msg.text or "") + "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
+            pending_posts.pop(tour_id, None)
+            status_line = "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
         except Exception as e:
-            caption_update = (msg.caption or msg.text or "") + f"\n\n❌ Ошибка публикации: {e}"
+            status_line = f"\n\n❌ Ошибка: {e}"
 
         try:
             if msg.photo:
-                await query.edit_message_caption(caption=caption_update, parse_mode="HTML")
+                await query.edit_message_caption(
+                    caption=(msg.caption or "") + status_line, parse_mode="HTML")
             else:
-                await query.edit_message_text(text=caption_update, parse_mode="HTML")
+                await query.edit_message_text(
+                    text=(msg.text or "") + status_line, parse_mode="HTML")
         except Exception:
             pass
 
     elif data.startswith("reject_"):
         tour_id = data.replace("reject_", "")
-        msg = query.message
-        caption_update = (msg.caption or msg.text or "") + "\n\n❌ <b>ПРОПУЩЕН</b>"
+        pending_posts.pop(tour_id, None)
+        status_line = "\n\n❌ <b>ПРОПУЩЕН</b>"
         try:
             if msg.photo:
-                await query.edit_message_caption(caption=caption_update, parse_mode="HTML")
+                await query.edit_message_caption(
+                    caption=(msg.caption or "") + status_line, parse_mode="HTML")
             else:
-                await query.edit_message_text(text=caption_update, parse_mode="HTML")
+                await query.edit_message_text(
+                    text=(msg.text or "") + status_line, parse_mode="HTML")
         except Exception:
             pass
 
 
-def build_application() -> Application:
+def build_application(pending_posts: dict = None) -> Application:
     """
     Собирает и настраивает Telegram-бота.
     Вызывается из main.py при старте.
     """
+    _pending = pending_posts if pending_posts is not None else {}
+
+    async def handle_approval_with_store(update: Update,
+                                          context: ContextTypes.DEFAULT_TYPE) -> None:
+        await _handle_approval(update, context, _pending)
+
     app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
 
     # Диалог сбора заявок
@@ -314,6 +337,6 @@ def build_application() -> Application:
     app.add_handler(conv_handler)
 
     # Обработчик кнопок одобрения (для руководителя)
-    app.add_handler(CallbackQueryHandler(handle_approval, pattern="^(approve|reject)_"))
+    app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject)_"))
 
     return app

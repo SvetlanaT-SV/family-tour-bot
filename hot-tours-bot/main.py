@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # ── Флаг режима: True = присылать на одобрение, False = автопилот ──
 APPROVAL_MODE = True
 
+# Хранилище постов ожидающих одобрения: tour_id → {text, photo_url}
+PENDING_POSTS: dict = {}
+
 
 async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
     """
@@ -64,6 +67,8 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
 
             if APPROVAL_MODE:
                 tour_id = f"sheets_{row_num}"
+                # Сохраняем оригинальный пост с HTML-разметкой
+                PENDING_POSTS[tour_id] = {"text": text, "photo_url": photo_url}
                 preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{tour_id}"),
@@ -143,7 +148,7 @@ async def post_init(application: Application) -> None:
 
 
 if __name__ == "__main__":
-    app = build_application()
+    app = build_application(PENDING_POSTS)
     app.post_init = post_init
 
     logger.info("✅ Telegram-бот запущен")
