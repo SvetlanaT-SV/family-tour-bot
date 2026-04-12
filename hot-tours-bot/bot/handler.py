@@ -237,20 +237,58 @@ async def handle_approval(update: Update,
 
     if data.startswith("approve_"):
         tour_id = data.replace("approve_", "")
-        # TODO шаг 8: здесь запустим реальную публикацию
-        await query.edit_message_caption(
-            caption=query.message.caption + "\n\n✅ <b>ОДОБРЕНО — публикуется...</b>",
-            parse_mode="HTML",
-        )
-        print(f"✅ Руководитель одобрил тур {tour_id}")
+
+        # Берём текст поста из сообщения (убираем шапку «НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:»)
+        msg = query.message
+        raw = msg.caption or msg.text or ""
+        # Убираем первую строку-заголовок
+        lines = raw.split("\n", 3)
+        post_text = lines[3].strip() if len(lines) > 3 else raw
+
+        try:
+            if msg.photo:
+                await context.bot.send_photo(
+                    chat_id=Config.TELEGRAM_CHANNEL_ID,
+                    photo=msg.photo[-1].file_id,
+                    caption=post_text,
+                    parse_mode="HTML",
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=Config.TELEGRAM_CHANNEL_ID,
+                    text=post_text,
+                    parse_mode="HTML",
+                )
+
+            # Обновляем статус в Sheets
+            if tour_id.startswith("sheets_"):
+                row_num = int(tour_id.replace("sheets_", ""))
+                sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+                sheets.mark_tour_status(row_num, "ОПУБЛИКОВАН")
+
+            caption_update = (msg.caption or msg.text or "") + "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
+        except Exception as e:
+            caption_update = (msg.caption or msg.text or "") + f"\n\n❌ Ошибка публикации: {e}"
+
+        try:
+            if msg.photo:
+                await query.edit_message_caption(caption=caption_update, parse_mode="HTML")
+            else:
+                await query.edit_message_text(text=caption_update, parse_mode="HTML")
+        except Exception:
+            pass
 
     elif data.startswith("reject_"):
         tour_id = data.replace("reject_", "")
-        await query.edit_message_caption(
-            caption=query.message.caption + "\n\n❌ <b>ПРОПУЩЕН</b>",
-            parse_mode="HTML",
-        )
-        print(f"❌ Руководитель отклонил тур {tour_id}")
+        msg = query.message
+        caption_update = (msg.caption or msg.text or "") + "\n\n❌ <b>ПРОПУЩЕН</b>"
+        try:
+            if msg.photo:
+                await query.edit_message_caption(caption=caption_update, parse_mode="HTML")
+            else:
+                await query.edit_message_text(text=caption_update, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 def build_application() -> Application:
