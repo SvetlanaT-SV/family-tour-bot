@@ -68,15 +68,20 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
                 ]])
 
+                sent = False
                 if photo_url:
-                    await bot.send_photo(
-                        chat_id=Config.TELEGRAM_ADMIN_ID,
-                        photo=photo_url,
-                        caption=preview,
-                        parse_mode="HTML",
-                        reply_markup=keyboard,
-                    )
-                else:
+                    try:
+                        await bot.send_photo(
+                            chat_id=Config.TELEGRAM_ADMIN_ID,
+                            photo=photo_url,
+                            caption=preview,
+                            parse_mode="HTML",
+                            reply_markup=keyboard,
+                        )
+                        sent = True
+                    except Exception:
+                        pass  # фото не загрузилось — отправим без него
+                if not sent:
                     await bot.send_message(
                         chat_id=Config.TELEGRAM_ADMIN_ID,
                         text=preview,
