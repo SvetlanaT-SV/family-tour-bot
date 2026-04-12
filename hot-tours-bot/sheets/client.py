@@ -38,8 +38,7 @@ TOURS_HEADERS = [
     "Страна",       # Турция
     "Курорт",       # Анталья
     "Отель",        # Rixos Premium Belek
-    "Звёзды",       # 5
-    "Питание",      # AI, UAI, HB, BB, FB
+    "Питание",      # Всё включено, Полупансион...
     "Дата вылета",  # 15.04.2026
     "Ночей",        # 7
     "Цена/чел",     # 45000
@@ -221,9 +220,9 @@ class SheetsClient:
             ws = ss.worksheet(SHEET_TOURS)
             ws.update_cell(row_number, 1, status)         # A = Статус
             if published_at:
-                ws.update_cell(row_number, 12, published_at)  # L = Опубликован
+                ws.update_cell(row_number, 11, published_at)  # K = Опубликован
             if error:
-                ws.update_cell(row_number, 13, error)         # M = Ошибка
+                ws.update_cell(row_number, 12, error)         # L = Ошибка
         except Exception as e:
             print(f"❌ Sheets: ошибка обновления статуса тура: {e}")
 
