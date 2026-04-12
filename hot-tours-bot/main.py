@@ -61,7 +61,7 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
         try:
             logger.info(f"  Генерирую пост: {name}")
             text = generate_post_from_dict(tour_row, Config.ANTHROPIC_API_KEY)
-            photo_url = tour_row.get("Фото URL", "").strip() or None
+            photo_url = str(tour_row.get("Фото URL", "") or "").strip() or None
 
             bot = context.bot  # используем уже авторизованного бота
 
