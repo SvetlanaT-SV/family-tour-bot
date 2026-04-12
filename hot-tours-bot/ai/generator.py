@@ -52,9 +52,10 @@ MEAL_RU = {
 }
 
 
-def _meal_ru(meal: str) -> str:
+def _meal_ru(meal) -> str:
     """Возвращает русское название типа питания, если код известен."""
-    return MEAL_RU.get(meal.strip(), meal)
+    meal = str(meal).strip()
+    return MEAL_RU.get(meal, meal)
 
 
 def _nights_word(n: int) -> str:
@@ -190,15 +191,15 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 
     Если api_key не задан — генерирует по шаблону без ИИ.
     """
-    country  = data.get("Страна", "")
-    resort   = data.get("Курорт", "")
-    hotel    = data.get("Отель", "")
-    stars    = str(data.get("Звёзды", ""))
-    meal     = data.get("Питание", "")
-    date     = data.get("Дата вылета", "")
-    nights   = str(data.get("Ночей", ""))
-    price    = str(data.get("Цена/чел", ""))
-    link     = data.get("Ссылка", "")
+    country  = str(data.get("Страна", "") or "")
+    resort   = str(data.get("Курорт", "") or "")
+    hotel    = str(data.get("Отель", "") or "")
+    stars    = str(data.get("Звёзды", "") or "")
+    meal     = str(data.get("Питание", "") or "")
+    date     = str(data.get("Дата вылета", "") or "")
+    nights   = str(data.get("Ночей", "") or "")
+    price    = str(data.get("Цена/чел", "") or "")
+    link     = str(data.get("Ссылка", "") or "")
 
     stars_str  = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
     meal_ru    = _meal_ru(meal)
