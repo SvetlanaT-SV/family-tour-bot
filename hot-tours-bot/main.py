@@ -20,8 +20,11 @@ from config import Config
 from ai.generator import generate_post_from_dict
 from publisher.telegram import TelegramPublisher
 from publisher.vk import VKPublisher
+from publisher.max import MAXPublisher
 from sheets.client import SheetsClient
 from bot.handler import build_application
+from bot.max_handler import start_in_background as start_max_polling
+from bot.vk_handler import start_in_background as start_vk_polling
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
@@ -118,6 +121,10 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
                     vk.publish(text, photo_url)
 
+                if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
+                    max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
+                    max_pub.publish(text, photo_url)
+
                 sheets.mark_tour_status(
                     row_num, "ОПУБЛИКОВАН",
                     published_at=datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -149,6 +156,10 @@ async def post_init(application: Application) -> None:
 
 
 if __name__ == "__main__":
+    # Запускаем MAX polling в фоновом потоке
+    # VK polling отключён — используется Senler
+    start_max_polling()
+
     app = build_application(PENDING_POSTS)
     app.post_init = post_init
 

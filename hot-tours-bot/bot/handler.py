@@ -23,6 +23,8 @@ from telegram.ext import (
     ContextTypes,
 )
 from publisher.telegram import TelegramPublisher
+from publisher.vk import VKPublisher
+from publisher.max import MAXPublisher
 from sheets.client import SheetsClient
 from config import Config
 
@@ -37,10 +39,10 @@ logger = logging.getLogger(__name__)
 # ConversationHandler работает как конечный автомат:
 # каждое состояние = один вопрос
 ASK_NAME     = 0   # Шаг 1: спрашиваем имя
-ASK_PHONE    = 1   # Шаг 2: спрашиваем телефон
-ASK_DATES    = 2   # Шаг 3: спрашиваем даты
-ASK_TOURISTS = 3   # Шаг 4: спрашиваем состав группы
-ASK_BUDGET   = 4   # Шаг 5: спрашиваем бюджет
+ASK_DATES    = 1   # Шаг 2: спрашиваем даты
+ASK_TOURISTS = 2   # Шаг 3: спрашиваем состав группы
+ASK_BUDGET   = 3   # Шаг 4: спрашиваем бюджет
+ASK_PHONE    = 4   # Шаг 5: спрашиваем телефон
 DONE         = 5   # Финал: благодарим и закрываем
 
 
@@ -70,31 +72,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Получили имя → спрашиваем телефон"""
+    """Получили имя → спрашиваем даты"""
     name = update.message.text.strip()
     context.user_data["name"] = name
 
-    await update.message.reply_text(
-        f"Приятно познакомиться, {name.split()[0]}! 😊\n\n"
-        "Укажите ваш номер телефона — менеджер свяжется с вами "
-        "в течение 1 часа:",
-    )
-    return ASK_PHONE
-
-
-async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Получили телефон → спрашиваем даты"""
-    phone = update.message.text.strip()
-    context.user_data["phone"] = phone
-
-    # Кнопки для выбора гибкости дат
     keyboard = [
         ["Конкретные даты"],
         ["Гибкие даты (любые ближайшие)"],
         ["Могу лететь в любое время"],
     ]
     await update.message.reply_text(
-        "Отлично! 📅\n\n"
+        f"Приятно познакомиться, {name.split()[0]}! 😊\n\n"
         "Какие даты вылета вас интересуют?\n"
         "(Выберите вариант или напишите конкретные даты)",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True,
@@ -132,7 +120,7 @@ async def ask_tourists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         ["80 000 — 120 000 ₽/чел", "Более 120 000 ₽/чел"],
     ]
     await update.message.reply_text(
-        "Почти готово! 💰\n\n"
+        "Отлично! 💰\n\n"
         "Примерный бюджет на одного человека:",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True,
                                           resize_keyboard=True),
@@ -141,22 +129,35 @@ async def ask_tourists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def ask_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """
-    Получили бюджет — диалог завершён.
-    Сохраняем данные и уведомляем руководителя.
-    """
+    """Получили бюджет → спрашиваем телефон"""
     budget = update.message.text.strip()
     context.user_data["budget"] = budget
+
+    await update.message.reply_text(
+        "Почти готово! 📞\n\n"
+        "Укажите ваш номер телефона — менеджер свяжется с вами в течение 1 часа:",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ASK_PHONE
+
+
+async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Получили телефон — диалог завершён.
+    Сохраняем данные и уведомляем руководителя.
+    """
+    phone = update.message.text.strip()
+    context.user_data["phone"] = phone
 
     # Собираем все данные клиента
     user = update.effective_user
     lead = {
         "name":     context.user_data.get("name", "—"),
-        "phone":    context.user_data.get("phone", "—"),
+        "phone":    phone,
         "tour":     context.user_data.get("tour_ref", "не указан"),
         "dates":    context.user_data.get("dates", "—"),
         "tourists": context.user_data.get("tourists", "—"),
-        "budget":   budget,
+        "budget":   context.user_data.get("budget", "—"),
         "tg_id":    str(user.id),
         "tg_user":  f"@{user.username}" if user.username else "нет username",
         "source":   "Telegram бот",
@@ -199,7 +200,7 @@ async def ask_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "Ваша заявка принята. Наш менеджер свяжется с вами "
         "в течение <b>1 часа</b> для подбора лучшего варианта.\n\n"
         "Если хотите — можете написать нам напрямую:\n"
-        "📞 +7 (XXX) XXX-XX-XX\n\n"
+        "📞 +7 (917) 044-21-00\n\n"
         "До встречи на курорте! 🌴",
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove(),
@@ -272,6 +273,22 @@ async def _handle_approval(update: Update,
                     parse_mode="HTML",
                 )
 
+            # Публикуем в ВКонтакте
+            if Config.VK_TOKEN and Config.VK_GROUP_ID:
+                try:
+                    vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
+                    vk.publish(post_text, photo_url or None)
+                except Exception as vk_err:
+                    logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
+
+            # Публикуем в MAX
+            if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
+                try:
+                    max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
+                    max_pub.publish(post_text, photo_url or None)
+                except Exception as max_err:
+                    logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")
+
             # Обновляем статус в Sheets
             if tour_id.startswith("sheets_"):
                 row_num = int(tour_id.replace("sheets_", ""))
@@ -326,10 +343,10 @@ def build_application(pending_posts: dict = None) -> Application:
         entry_points=[CommandHandler("start", start)],
         states={
             ASK_NAME:     [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASK_PHONE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_phone)],
             ASK_DATES:    [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_dates)],
             ASK_TOURISTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tourists)],
             ASK_BUDGET:   [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_budget)],
+            ASK_PHONE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_phone)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )

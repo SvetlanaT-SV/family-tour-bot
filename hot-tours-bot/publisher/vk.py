@@ -114,10 +114,16 @@ class VKPublisher:
 
         Возвращает post_id опубликованного поста.
         """
+        # Заменяем ссылку на бота на ссылку для сообщений сообщества ВК
+        vk_text = text.replace(
+            "📩 Написать нам: <b>@hottourpegas_bot</b>",
+            "📩 Написать нам: <b>vk.me/family_toor</b>",
+        )
+
         params = {
             "owner_id":   f"-{self.group_id}",  # минус = это группа
             "from_group": 1,                      # от имени группы, не пользователя
-            "message":    text,
+            "message":    vk_text,
         }
 
         # Если есть фото — сначала загружаем
