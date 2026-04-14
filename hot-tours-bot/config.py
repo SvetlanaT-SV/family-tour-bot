@@ -32,8 +32,9 @@ class Config:
     TELEGRAM_ADMIN_ID   = int(os.getenv("TELEGRAM_ADMIN_ID", "0"))
 
     # ── ВКонтакте ──────────────────────────────────────────────
-    VK_TOKEN    = os.getenv("VK_TOKEN", "")
-    VK_GROUP_ID = int(os.getenv("VK_GROUP_ID", "0"))
+    VK_TOKEN      = os.getenv("VK_TOKEN", "")       # токен группы — для публикации постов
+    VK_USER_TOKEN = os.getenv("VK_USER_TOKEN", "")  # токен пользователя — для загрузки фото
+    VK_GROUP_ID   = int(os.getenv("VK_GROUP_ID", "0"))
 
     # ── MAX (мессенджер от VK) ─────────────────────────────────
     MAX_TOKEN   = os.getenv("MAX_TOKEN", "")

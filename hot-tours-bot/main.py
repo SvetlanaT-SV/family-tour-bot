@@ -9,7 +9,9 @@ main.py — Точка входа. Запускает всю систему.
 Запуск:  python main.py
 """
 
+import json
 import logging
+import os
 import requests as _requests
 from io import BytesIO
 from datetime import datetime
@@ -35,8 +37,35 @@ logger = logging.getLogger(__name__)
 # ── Флаг режима: True = присылать на одобрение, False = автопилот ──
 APPROVAL_MODE = True
 
+# Файл для сохранения постов между перезапусками
+_PENDING_FILE = os.path.join(os.path.dirname(__file__), "pending_posts.json")
+
+
+def _load_pending() -> dict:
+    """Загружает pending_posts из файла (если есть)."""
+    if os.path.exists(_PENDING_FILE):
+        try:
+            with open(_PENDING_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    logger.info(f"📂 Загружено {len(data)} отложенных постов из файла")
+                return data
+        except Exception:
+            pass
+    return {}
+
+
+def _save_pending(posts: dict) -> None:
+    """Сохраняет pending_posts в файл."""
+    try:
+        with open(_PENDING_FILE, "w", encoding="utf-8") as f:
+            json.dump(posts, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить pending_posts: {e}")
+
+
 # Хранилище постов ожидающих одобрения: tour_id → {text, photo_url}
-PENDING_POSTS: dict = {}
+PENDING_POSTS: dict = _load_pending()
 
 
 async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
@@ -73,6 +102,7 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                 tour_id = f"sheets_{row_num}"
                 # Сохраняем оригинальный пост с HTML-разметкой
                 PENDING_POSTS[tour_id] = {"text": text, "photo_url": photo_url}
+                _save_pending(PENDING_POSTS)
                 preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{tour_id}"),
@@ -156,12 +186,26 @@ async def post_init(application: Application) -> None:
 
 
 if __name__ == "__main__":
+    import time
+    from telegram.error import Conflict
+
     # Запускаем MAX polling в фоновом потоке
     # VK polling отключён — используется Senler
     start_max_polling()
 
-    app = build_application(PENDING_POSTS)
+    app = build_application(PENDING_POSTS, save_pending=_save_pending)
     app.post_init = post_init
 
-    logger.info("✅ Telegram-бот запущен")
-    app.run_polling(drop_pending_updates=True)
+    # Если Telegram ещё держит старое соединение — ждём и повторяем
+    for attempt in range(10):
+        try:
+            logger.info("✅ Telegram-бот запускается...")
+            app.run_polling(drop_pending_updates=True)
+            break
+        except Conflict:
+            wait = 15 * (attempt + 1)
+            logger.warning(f"⚠️ Конфликт соединений — жду {wait} сек и повторяю...")
+            time.sleep(wait)
+        except Exception as e:
+            logger.error(f"❌ Ошибка запуска: {e}")
+            break

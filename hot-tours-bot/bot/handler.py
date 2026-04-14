@@ -222,7 +222,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def _handle_approval(update: Update,
                             context: ContextTypes.DEFAULT_TYPE,
-                            pending_posts: dict) -> None:
+                            pending_posts: dict,
+                            save_pending=None) -> None:
     """
     Обрабатывает нажатие кнопок ✅/❌ в превью поста.
     Срабатывает только у руководителя (проверяем admin_id).
@@ -244,6 +245,7 @@ async def _handle_approval(update: Update,
         stored = pending_posts.get(tour_id, {})
         post_text = stored.get("text", "")
         photo_url = stored.get("photo_url", "")
+
 
         try:
             if photo_url:
@@ -282,10 +284,12 @@ async def _handle_approval(update: Update,
                     logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
 
             # Публикуем в MAX
+            logger.info(f"MAX: token={bool(Config.MAX_TOKEN)}, chat_id={Config.MAX_CHAT_ID}")
             if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
                 try:
                     max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
-                    max_pub.publish(post_text, photo_url or None)
+                    result = max_pub.publish(post_text, photo_url or None)
+                    logger.info(f"MAX: результат публикации={result}")
                 except Exception as max_err:
                     logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")
 
@@ -296,6 +300,8 @@ async def _handle_approval(update: Update,
                 sheets.mark_tour_status(row_num, "ОПУБЛИКОВАН")
 
             pending_posts.pop(tour_id, None)
+            if save_pending:
+                save_pending(pending_posts)
             status_line = "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
         except Exception as e:
             status_line = f"\n\n❌ Ошибка: {e}"
@@ -313,6 +319,8 @@ async def _handle_approval(update: Update,
     elif data.startswith("reject_"):
         tour_id = data.replace("reject_", "")
         pending_posts.pop(tour_id, None)
+        if save_pending:
+            save_pending(pending_posts)
         status_line = "\n\n❌ <b>ПРОПУЩЕН</b>"
         try:
             if msg.photo:
@@ -325,18 +333,27 @@ async def _handle_approval(update: Update,
             pass
 
 
-def build_application(pending_posts: dict = None) -> Application:
+def build_application(pending_posts: dict = None, save_pending=None) -> Application:
     """
     Собирает и настраивает Telegram-бота.
     Вызывается из main.py при старте.
+    save_pending — функция сохранения PENDING_POSTS в файл (из main.py).
     """
     _pending = pending_posts if pending_posts is not None else {}
+    _save = save_pending or (lambda d: None)
 
     async def handle_approval_with_store(update: Update,
                                           context: ContextTypes.DEFAULT_TYPE) -> None:
-        await _handle_approval(update, context, _pending)
+        await _handle_approval(update, context, _pending, _save)
 
-    app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+    import os
+    from telegram.request import HTTPXRequest
+    proxy = os.getenv("TELEGRAM_PROXY", "").strip()
+    if proxy:
+        request = HTTPXRequest(proxy=proxy, connect_timeout=30, read_timeout=30, write_timeout=30)
+        app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).request(request).build()
+    else:
+        app = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).connect_timeout(30).read_timeout(30).write_timeout(30).build()
 
     # Диалог сбора заявок
     conv_handler = ConversationHandler(
