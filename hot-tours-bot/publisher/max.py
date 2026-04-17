@@ -107,15 +107,13 @@ class MAXPublisher:
         if photo_url:
             photo_data = self._upload_photo(photo_url)
             if photo_data:
-                # MAX API возвращает photos[0].token или url после загрузки
-                photos = photo_data.get("photos", [])
+                # MAX API возвращает photos как dict: {key: {"token": "..."}}
+                photos = photo_data.get("photos", {})
                 if photos:
-                    token = photos[0].get("token")
+                    first_photo = next(iter(photos.values()), {})
+                    token = first_photo.get("token")
                     if token:
                         body["attachments"] = [{"type": "image", "payload": {"token": token}}]
-                # Если структура другая — пробуем url напрямую
-                elif photo_data.get("url"):
-                    body["attachments"] = [{"type": "image", "payload": {"url": photo_data["url"]}}]
 
         logger.info(f"MAX: публикуем в chat_id={self.chat_id}")
         result = self._call(
