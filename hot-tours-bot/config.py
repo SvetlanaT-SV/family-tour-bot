@@ -37,7 +37,7 @@ class Config:
     VK_GROUP_ID   = int(os.getenv("VK_GROUP_ID", "0"))
 
     # ── MAX (мессенджер от VK) ─────────────────────────────────
-    MAX_TOKEN   = os.getenv("MAX_TOKEN", "")
+    MAX_TOKEN   = os.getenv("MAX_TOKEN", "").strip()
     MAX_CHAT_ID = int(os.getenv("MAX_CHAT_ID", "0"))
 
     # ── Claude API ─────────────────────────────────────────────
