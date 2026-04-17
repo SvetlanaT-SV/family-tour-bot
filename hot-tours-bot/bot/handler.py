@@ -276,10 +276,12 @@ async def _handle_approval(update: Update,
                 )
 
             # Публикуем в ВКонтакте
+            logger.info(f"VK: token={bool(Config.VK_TOKEN)}, group_id={Config.VK_GROUP_ID}")
             if Config.VK_TOKEN and Config.VK_GROUP_ID:
                 try:
                     vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
-                    vk.publish(post_text, photo_url or None)
+                    vk_result = vk.publish(post_text, photo_url or None)
+                    logger.info(f"VK: результат публикации={vk_result}")
                 except Exception as vk_err:
                     logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
 

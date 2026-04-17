@@ -242,4 +242,5 @@ class VKPublisher:
             logger.info(f"VK: опубликовано (post_id={post_id})")
             return post_id
 
+        logger.warning(f"VK: post_id не получен, ответ API: {result}")
         return None
