@@ -11,11 +11,14 @@ Tourvisor — агрегатор туров для агентств. Через 
 Документация: https://wiki.tourvisor.ru/
 """
 
+import logging
 import time
 import requests
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -137,14 +140,13 @@ class TourvisorClient:
             response.raise_for_status()  # вызовет ошибку если код не 200
             return response.json()
         except requests.exceptions.Timeout:
-            print(f"⏱ Таймаут запроса к {endpoint}")
+            logger.warning(f"Tourvisor: таймаут запроса к {endpoint}")
             return {}
         except requests.exceptions.RequestException as e:
-            print(f"❌ Ошибка запроса к {endpoint}: {e}")
+            logger.warning(f"Tourvisor: ошибка запроса к {endpoint}: {e}")
             return {}
         except ValueError:
-            print(f"❌ Не удалось разобрать JSON от {endpoint}")
-            print(f"   Ответ сервера: {response.text[:200]}")
+            logger.warning(f"Tourvisor: не удалось разобрать JSON от {endpoint}: {response.text[:200]}")
             return {}
 
     # ── Справочники ───────────────────────────────────────────
@@ -204,18 +206,18 @@ class TourvisorClient:
         if price_max:
             params["priceto"] = price_max
 
-        print(f"🔍 Запускаю поиск туров из города ID={departure_id}...")
+        logger.info(f"Tourvisor: search.php params={params}")
         data = self._get("search.php", params)
+        logger.info(f"Tourvisor: search.php ответ={data}")
 
         request_id = data.get("data", {}).get("requestid")
         if not request_id:
-            # Попробуем другую структуру ответа
             request_id = data.get("requestid")
 
         if request_id:
-            print(f"   Запрос создан, requestid = {request_id}")
+            logger.info(f"Tourvisor: requestid={request_id}")
         else:
-            print(f"   ❌ Не получили requestid. Ответ API: {data}")
+            logger.warning(f"Tourvisor: requestid не получен, ответ={data}")
 
         return request_id
 
@@ -235,28 +237,27 @@ class TourvisorClient:
         Ожидает завершения поиска и возвращает список туров.
         Tourvisor ищет асинхронно — нужно опрашивать каждую секунду.
         """
-        print(f"⏳ Жду результаты (макс {max_wait_sec} сек)...")
+        logger.info(f"Tourvisor: жду результаты (макс {max_wait_sec} сек)...")
 
         for attempt in range(max_wait_sec):
             data = self._get_results(request_id)
             result = data.get("data", {})
             status = result.get("status")
 
-            # Статус 1/"1"/"ok"/"done" — поиск завершён
             if status in (1, "1", "ok", "done") or str(status) == "1":
                 tours_raw = result.get("result", {}).get("hotel", [])
                 if isinstance(tours_raw, dict):
                     tours_raw = [tours_raw]
-                print(f"✅ Поиск завершён, найдено туров: {len(tours_raw)}, статус={status!r}")
+                logger.info(f"Tourvisor: поиск завершён, найдено={len(tours_raw)}, статус={status!r}")
                 return tours_raw
 
             found_so_far = result.get("found", 0)
-            if attempt % 5 == 0:
-                print(f"   Ищу... ({attempt} сек, статус={status!r}, найдено пока: {found_so_far})")
+            if attempt % 10 == 0:
+                logger.info(f"Tourvisor: ищу... {attempt} сек, статус={status!r}, найдено пока={found_so_far}")
 
             time.sleep(1)
 
-        print("⚠️  Превышено время ожидания (90 сек)")
+        logger.warning("Tourvisor: превышено время ожидания (90 сек)")
         return []
 
     def _parse_tour(self, raw: dict) -> Tour:
