@@ -147,9 +147,9 @@ class VKPublisher:
             use_proxy=True,
         )
 
-        # Если ошибка IP — пробуем обновить токен и повторить
+        # Если ошибка авторизации (истёк токен, другой IP) — пробуем обновить и повторить
         err = upload_data.get("error", {})
-        if err.get("error_code") == 1117 or "ip address" in str(err.get("error_msg", "")).lower():
+        if err.get("error_code") in (5, 1117) or "ip address" in str(err.get("error_msg", "")).lower():
             logger.warning("VK: токен привязан к другому IP, пробуем обновить...")
             new_token = self._refresh_user_token()
             if new_token:
