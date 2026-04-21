@@ -62,16 +62,28 @@ class VKPublisher:
             "v":            self.API_VER,
             **params,
         }
+        proxies = self._proxies() if use_proxy else None
         try:
-            resp = requests.get(url, params=all_params, timeout=30,
-                                proxies=self._proxies() if use_proxy else None)
+            resp = requests.get(url, params=all_params, timeout=30, proxies=proxies)
             result = resp.json()
             if "error" in result:
                 err = result["error"]
                 logger.warning(f"VK API ошибка {err.get('error_code')}: {err.get('error_msg')}")
             return result
         except Exception as e:
-            logger.warning(f"Ошибка запроса к VK: {e}")
+            logger.warning(f"Ошибка запроса к VK (proxies={bool(proxies)}): {e}")
+            if proxies:
+                # Прокси недоступен (например, на сервере) — пробуем без прокси
+                logger.info("VK: прокси недоступен, повторяем без прокси...")
+                try:
+                    resp = requests.get(url, params=all_params, timeout=30)
+                    result = resp.json()
+                    if "error" in result:
+                        err = result["error"]
+                        logger.warning(f"VK API ошибка {err.get('error_code')}: {err.get('error_msg')}")
+                    return result
+                except Exception as e2:
+                    logger.warning(f"VK: запрос без прокси тоже не удался: {e2}")
             return {}
 
     def _refresh_user_token(self) -> Optional[str]:
@@ -147,10 +159,11 @@ class VKPublisher:
             use_proxy=True,
         )
 
-        # Если ошибка авторизации (истёк токен, другой IP) — пробуем обновить и повторить
-        err = upload_data.get("error", {})
-        if err.get("error_code") in (5, 1117) or "ip address" in str(err.get("error_msg", "")).lower():
-            logger.warning("VK: токен привязан к другому IP, пробуем обновить...")
+        upload_url = upload_data.get("response", {}).get("upload_url")
+        if not upload_url:
+            # upload_url не получен: либо API-ошибка, либо прокси упал до ответа
+            # В любом случае пробуем обновить токен и повторить
+            logger.warning("VK: upload_url не получен, пробуем обновить токен...")
             new_token = self._refresh_user_token()
             if new_token:
                 user_token = new_token
@@ -160,11 +173,10 @@ class VKPublisher:
                     token=user_token,
                     use_proxy=True,
                 )
-
-        upload_url = upload_data.get("response", {}).get("upload_url")
-        if not upload_url:
-            logger.warning("VK: не получили upload_url, пост будет без фото")
-            return None
+                upload_url = upload_data.get("response", {}).get("upload_url")
+            if not upload_url:
+                logger.warning("VK: upload_url недоступен даже после обновления токена, пост будет без фото")
+                return None
 
         # Шаг 2: скачиваем фото по внешней ссылке
         try:
