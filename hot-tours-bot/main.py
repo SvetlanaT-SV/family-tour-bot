@@ -98,7 +98,10 @@ def _save_sent_tours(sent: dict) -> None:
 
 def _fetch_tourvisor_tours():
     """Синхронный поиск туров через Tourvisor API (запускается в executor)."""
-    client = TourvisorClient(Config.TOURVISOR_LOGIN, Config.TOURVISOR_PASSWORD)
+    login = Config.TOURVISOR_LOGIN
+    password = Config.TOURVISOR_PASSWORD
+    logger.info(f"Tourvisor: login={login!r} (len={len(login)}), password len={len(password)}")
+    client = TourvisorClient(login, password)
     departure_id = client.find_city_id("Уфа")
     if not departure_id:
         logger.error("Tourvisor: город Уфа не найден в справочнике")
