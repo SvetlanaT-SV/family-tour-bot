@@ -246,6 +246,19 @@ async def _handle_approval(update: Update,
         post_text = stored.get("text", "")
         photo_url = stored.get("photo_url", "")
 
+        # Если после перезапуска хранилище пустое — восстанавливаем из сообщения
+        if not post_text:
+            raw = msg.caption_html or msg.text_html or ""
+            # Убираем заголовок превью
+            for prefix in [
+                "📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n",
+                "📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:\n\n",
+            ]:
+                if prefix in raw:
+                    raw = raw.split(prefix, 1)[1]
+                    break
+            post_text = raw.strip()
+            logger.info(f"PENDING_POSTS пуст — текст восстановлен из сообщения ({len(post_text)} символов)")
 
         try:
             if photo_url:
