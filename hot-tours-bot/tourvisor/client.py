@@ -230,7 +230,7 @@ class TourvisorClient:
         })
 
     def _wait_for_results(self, request_id: str,
-                           max_wait_sec: int = 60) -> list[dict]:
+                           max_wait_sec: int = 90) -> list[dict]:
         """
         Ожидает завершения поиска и возвращает список туров.
         Tourvisor ищет асинхронно — нужно опрашивать каждую секунду.
@@ -242,23 +242,21 @@ class TourvisorClient:
             result = data.get("data", {})
             status = result.get("status")
 
-            # Статус 1 или "ok" — поиск завершён
-            if status in (1, "ok", "done"):
+            # Статус 1/"1"/"ok"/"done" — поиск завершён
+            if status in (1, "1", "ok", "done") or str(status) == "1":
                 tours_raw = result.get("result", {}).get("hotel", [])
                 if isinstance(tours_raw, dict):
-                    # Иногда один результат приходит как dict, а не list
                     tours_raw = [tours_raw]
-                print(f"✅ Поиск завершён, найдено туров: {len(tours_raw)}")
+                print(f"✅ Поиск завершён, найдено туров: {len(tours_raw)}, статус={status!r}")
                 return tours_raw
 
-            # Статус 0 или "pending" — ещё ищет
             found_so_far = result.get("found", 0)
-            if attempt % 5 == 0:  # печатаем каждые 5 секунд
-                print(f"   Ищу... ({attempt} сек, найдено пока: {found_so_far})")
+            if attempt % 5 == 0:
+                print(f"   Ищу... ({attempt} сек, статус={status!r}, найдено пока: {found_so_far})")
 
             time.sleep(1)
 
-        print("⚠️  Превышено время ожидания")
+        print("⚠️  Превышено время ожидания (90 сек)")
         return []
 
     def _parse_tour(self, raw: dict) -> Tour:

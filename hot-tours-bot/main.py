@@ -21,7 +21,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, ContextTypes
 
 from config import Config
-from ai.generator import generate_post, generate_post_from_dict
+from ai.generator import generate_post, generate_post_without_ai, generate_post_from_dict
 from tourvisor.client import TourvisorClient
 from publisher.telegram import TelegramPublisher
 from publisher.vk import VKPublisher
@@ -144,7 +144,10 @@ async def search_tourvisor_tours(context: ContextTypes.DEFAULT_TYPE = None):
         if count >= 3:
             break
         try:
-            text = generate_post(tour, Config.ANTHROPIC_API_KEY)
+            if Config.ANTHROPIC_API_KEY:
+                text = generate_post(tour, Config.ANTHROPIC_API_KEY)
+            else:
+                text = generate_post_without_ai(tour)
             photo_url = tour.photo_url or None
             tour_id = f"tv_{tour.tour_id}"
 
