@@ -54,8 +54,9 @@ def add_tour_overlay(image_bytes: bytes, country: str,
     """
     try:
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
-    except ImportError:
-        logger.warning("Pillow не установлен, фото без наложения")
+        logger.info("Overlay: Pillow импортирован")
+    except ImportError as ie:
+        logger.warning(f"Overlay: Pillow НЕ установлен ({ie}), фото без наложения")
         return image_bytes
 
     try:
@@ -87,8 +88,9 @@ def add_tour_overlay(image_bytes: bytes, country: str,
         bold_path = _find_font(FONT_PATHS_BOLD)
         reg_path  = _find_font(FONT_PATHS_REGULAR) or bold_path
         if not bold_path:
-            logger.warning("Не найден TTF-шрифт с кириллицей, наложение отключено")
+            logger.warning(f"Overlay: НЕ НАЙДЕН TTF-шрифт. Пробовал: {FONT_PATHS_BOLD}")
             return image_bytes
+        logger.info(f"Overlay: используется шрифт {bold_path}")
 
         # Размеры (в пикселях) подбираем от ширины
         sz_hot    = int(W * 0.045)   # "🔥 ГОРЯЩИЙ ТУР"
@@ -108,27 +110,39 @@ def add_tour_overlay(image_bytes: bytes, country: str,
         padding_x = int(W * 0.05)
         y = H - gradient_h + int(gradient_h * 0.25)
 
-        # Заголовок
-        hot_text = "🔥 ГОРЯЩИЙ ТУР"
-        draw.text((padding_x, y), hot_text, font=f_hot, fill=(255, 200, 50))
-        y += sz_hot + int(H * 0.01)
+        # Шапка — "ГОРЯЩИЙ ТУР" в красной плашке слева
+        tag = "ГОРЯЩИЙ ТУР"
+        try:
+            tag_bbox = draw.textbbox((0, 0), tag, font=f_hot)
+            tag_w = tag_bbox[2] - tag_bbox[0]
+            tag_h = tag_bbox[3] - tag_bbox[1]
+        except Exception:
+            tag_w, tag_h = draw.textsize(tag, font=f_hot)
+        pad = int(sz_hot * 0.35)
+        draw.rectangle(
+            [(padding_x, y), (padding_x + tag_w + pad * 2, y + tag_h + pad * 2)],
+            fill=(220, 50, 50)
+        )
+        draw.text((padding_x + pad, y + pad), tag, font=f_hot, fill=(255, 255, 255))
+        y += tag_h + pad * 2 + int(H * 0.02)
 
-        # Страна
+        # Страна — белым, крупным
         country_text = (country or "").upper()
         draw.text((padding_x, y), country_text, font=f_country, fill=(255, 255, 255),
-                  stroke_width=2, stroke_fill=(0, 0, 0))
+                  stroke_width=3, stroke_fill=(0, 0, 0))
         y += sz_country + int(H * 0.01)
 
-        # Цена
+        # Цена — жёлтым акцентом
         if price:
             price_text = f"от {price}"
-            draw.text((padding_x, y), price_text, font=f_price, fill=(255, 235, 100),
+            draw.text((padding_x, y), price_text, font=f_price, fill=(255, 220, 80),
                       stroke_width=2, stroke_fill=(0, 0, 0))
             y += sz_price + int(H * 0.005)
 
-        # Дополнительная строка (дата/город вылета)
+        # Дата / город вылета — серым мелким
         if departure:
-            draw.text((padding_x, y), departure, font=f_small, fill=(220, 220, 220))
+            draw.text((padding_x, y), departure, font=f_small, fill=(230, 230, 230),
+                      stroke_width=1, stroke_fill=(0, 0, 0))
 
         out = io.BytesIO()
         img.convert("RGB").save(out, format="JPEG", quality=92)
