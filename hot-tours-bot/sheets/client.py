@@ -212,18 +212,33 @@ class SheetsClient:
                           published_at: str = "", error: str = "") -> None:
         """
         Обновляет статус тура после публикации.
-        Вызывается ботом после успешной публикации или ошибки.
+        Находит колонки по их именам в первой строке — не зависит от порядка.
         """
         ss = self._get_spreadsheet()
         if not ss:
             return
         try:
             ws = ss.worksheet(SHEET_TOURS)
-            ws.update_cell(row_number, 1, status)         # A = Статус
+            headers = ws.row_values(1)
+
+            def col_idx(name: str) -> int:
+                """Возвращает 1-based индекс колонки по её названию, или 0 если нет."""
+                try:
+                    return headers.index(name) + 1
+                except ValueError:
+                    return 0
+
+            status_col = col_idx("Статус") or 1
+            ws.update_cell(row_number, status_col, status)
+
             if published_at:
-                ws.update_cell(row_number, 11, published_at)  # K = Опубликован
+                c = col_idx("Опубликован")
+                if c:
+                    ws.update_cell(row_number, c, published_at)
             if error:
-                ws.update_cell(row_number, 12, error)         # L = Ошибка
+                c = col_idx("Ошибка")
+                if c:
+                    ws.update_cell(row_number, c, error)
         except Exception as e:
             print(f"❌ Sheets: ошибка обновления статуса тура: {e}")
 
