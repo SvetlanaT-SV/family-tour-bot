@@ -276,9 +276,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def publish_to_channels(bot, post_text: str,
                                photo_url: str = None,
                                photo_bytes: bytes = None,
-                               tour_id: str = "") -> tuple[bool, str]:
+                               tour_id: str = "",
+                               overlay_country: str = "",
+                               overlay_price: str = "",
+                               overlay_departure: str = "") -> tuple[bool, str]:
     """
     Публикует пост в Telegram-канал, ВК и MAX.
+    Если заданы overlay_* — накладывает текст на фото.
     Возвращает (успех, сообщение_о_статусе).
     """
     from io import BytesIO
@@ -294,6 +298,20 @@ async def publish_to_channels(bot, post_text: str,
                 tg_photo_content = resp.content
         except Exception:
             pass
+
+    # Наложение текста на фото
+    if tg_photo_content and overlay_country:
+        try:
+            from image_overlay import add_tour_overlay
+            tg_photo_content = add_tour_overlay(
+                tg_photo_content,
+                country=overlay_country,
+                price=overlay_price,
+                departure=overlay_departure,
+            )
+            logger.info(f"Overlay: добавлен текст на фото (страна={overlay_country!r}, цена={overlay_price!r})")
+        except Exception as oe:
+            logger.warning(f"Overlay не применён: {oe}")
 
     try:
         if tg_photo_content:
@@ -393,6 +411,9 @@ async def _handle_approval(update: Update,
         post_text = stored.get("text", "")
         photo_url = stored.get("photo_url", "")
         photo_bytes = None
+        ov_country   = stored.get("overlay_country", "")
+        ov_price     = stored.get("overlay_price", "")
+        ov_departure = stored.get("overlay_departure", "")
 
         if not post_text:
             raw = msg.caption_html or msg.text_html or ""
@@ -421,6 +442,9 @@ async def _handle_approval(update: Update,
             photo_url=photo_url or None,
             photo_bytes=photo_bytes,
             tour_id=tour_id,
+            overlay_country=ov_country,
+            overlay_price=ov_price,
+            overlay_departure=ov_departure,
         )
         pending_posts.pop(tour_id, None)
         if save_pending:
@@ -441,11 +465,14 @@ async def _handle_approval(update: Update,
         from datetime import datetime, timezone
         slot = _next_schedule_slot()
         entry = {
-            "tour_id":       tour_id,
-            "text":          post_text,
-            "photo_url":     photo_url,
-            "photo_b64":     base64.b64encode(photo_bytes).decode() if photo_bytes else "",
-            "scheduled_for": slot.isoformat(),
+            "tour_id":            tour_id,
+            "text":               post_text,
+            "photo_url":          photo_url,
+            "photo_b64":          base64.b64encode(photo_bytes).decode() if photo_bytes else "",
+            "overlay_country":    ov_country,
+            "overlay_price":      ov_price,
+            "overlay_departure":  ov_departure,
+            "scheduled_for":      slot.isoformat(),
         }
         if scheduled_posts is not None:
             scheduled_posts.append(entry)

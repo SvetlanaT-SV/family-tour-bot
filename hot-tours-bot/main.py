@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import requests as _requests
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -124,6 +125,9 @@ async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE = None):
                 photo_url=entry.get("photo_url") or None,
                 photo_bytes=photo_bytes,
                 tour_id=entry.get("tour_id", ""),
+                overlay_country=entry.get("overlay_country", ""),
+                overlay_price=entry.get("overlay_price", ""),
+                overlay_departure=entry.get("overlay_departure", ""),
             )
             logger.info(f"Запланированный пост {entry.get('tour_id')}: ok={ok}")
         except Exception as e:
@@ -216,7 +220,13 @@ async def search_tourvisor_tours(context: ContextTypes.DEFAULT_TYPE = None):
             photo_url = tour.photo_url or None
             tour_id = f"tv_{tour.tour_id}"
 
-            PENDING_POSTS[tour_id] = {"text": text, "photo_url": photo_url}
+            PENDING_POSTS[tour_id] = {
+                "text":            text,
+                "photo_url":       photo_url,
+                "overlay_country": tour.country,
+                "overlay_price":   tour.formatted_price_per_person,
+                "overlay_departure": f"{tour.date_from} · из {tour.city_from}" if tour.date_from else "",
+            }
             _save_pending(PENDING_POSTS)
 
             preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
@@ -295,12 +305,26 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
             text = generate_post_from_dict(tour_row, Config.ANTHROPIC_API_KEY)
             photo_url = str(tour_row.get("Фото URL", "") or "").strip() or None
 
+            # Данные для наложения текста на фото
+            ov_country = str(tour_row.get("Страна", "") or "").strip()
+            ov_price_raw = str(tour_row.get("Цена/чел", "") or "").strip()
+            price_digits = re.sub(r"[^\d]", "", ov_price_raw)
+            ov_price = f"{int(price_digits):,} ₽/чел".replace(",", " ") if price_digits else ""
+            date_str = str(tour_row.get("Дата вылета", "") or "").strip()
+            city_str = str(tour_row.get("Город вылета", "") or "").strip() or "Уфа"
+            ov_departure = f"{date_str} · из {city_str}" if date_str else ""
+
             bot = context.bot  # используем уже авторизованного бота
 
             if APPROVAL_MODE:
                 tour_id = f"sheets_{row_num}"
-                # Сохраняем оригинальный пост с HTML-разметкой
-                PENDING_POSTS[tour_id] = {"text": text, "photo_url": photo_url}
+                PENDING_POSTS[tour_id] = {
+                    "text":            text,
+                    "photo_url":       photo_url,
+                    "overlay_country": ov_country,
+                    "overlay_price":   ov_price,
+                    "overlay_departure": ov_departure,
+                }
                 _save_pending(PENDING_POSTS)
                 preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
                 keyboard = InlineKeyboardMarkup([[
