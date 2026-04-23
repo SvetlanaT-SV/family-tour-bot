@@ -144,6 +144,136 @@ def _country_acc(country: str) -> str:
     return COUNTRY_ACCUSATIVE.get(country.strip(), country)
 
 
+# ── Пулы случайных преимуществ ──────────────────────────────────
+
+_ADV_MEAL_AI = [
+    "✅ Всё включено — еда, напитки, развлечения",
+    "✅ Система All Inclusive — ни о чём не беспокойтесь",
+    "✅ Питание и напитки на весь отдых — включено",
+    "✅ Ресторан, бар, перекусы — всё уже оплачено",
+    "✅ Можно ни разу не доставать кошелёк — всё включено",
+]
+
+_ADV_MEAL_UAI = [
+    "✅ Ultra All Inclusive — по-настоящему ни в чём себе не отказывать",
+    "✅ Премиум «всё включено» — алкоголь, рестораны à la carte",
+    "✅ UAI — фирменные напитки и блюда от шеф-повара включены",
+]
+
+_ADV_MEAL_HB = [
+    "✅ Полупансион — завтрак и ужин уже в цене",
+    "✅ HB — начинайте день с завтрака, заканчивайте ужином",
+    "✅ Кормят утром и вечером — днём свобода",
+]
+
+_ADV_MEAL_BB = [
+    "✅ Завтрак включён — утро без забот",
+    "✅ С утра — шведский стол, потом исследуйте город",
+    "✅ Завтрак в отеле, днём — местная кухня",
+]
+
+_ADV_STARS_5 = [
+    "✅ Отель {s}⭐ — премиум сервис и комфорт",
+    "✅ {s}⭐ — настоящая роскошь на отдыхе",
+    "✅ Люкс-категория {s}⭐ — обслуживание на высшем уровне",
+    "✅ {s} звёзд — внимание к каждой мелочи",
+]
+
+_ADV_STARS_4 = [
+    "✅ Отель {s}⭐ — высокий уровень комфорта",
+    "✅ {s}⭐ — проверенное качество для отдыха",
+    "✅ {s} звезды — всё необходимое для приятного отпуска",
+    "✅ Солидные {s}⭐ — без сюрпризов",
+]
+
+_ADV_FROM_UFA = [
+    "✅ Вылет прямо из Уфы — без пересадок",
+    "✅ Улетаете из Уфы — не нужно ехать в Москву",
+    "✅ Рейс из родной Уфы — собрались и поехали",
+    "✅ Из уфимского аэропорта — удобно и быстро",
+    "✅ Уфа → отель без лишних пересадок",
+    "✅ Экономите день и нервы — вылет из Уфы",
+    "✅ Не нужно лететь в Москву ради отдыха — Уфа вылетает сама",
+]
+
+_ADV_HOT_PRICE = [
+    "✅ Горящая цена — не упустите момент",
+    "✅ Цена падает прямо сейчас — успейте забронировать",
+    "✅ Такое бывает редко — ловите, пока есть",
+    "✅ Горящий тур = серьёзная экономия",
+    "✅ Цена ниже обычной — только на горящих местах",
+    "✅ Эта цена живёт часы — дальше дороже",
+    "✅ Выгода очевидна — проверьте на других сайтах",
+]
+
+_ADV_FAMILY = [
+    "✅ Отлично подойдёт для отдыха с детьми",
+    "✅ Детская анимация и бассейны для малышей",
+    "✅ Семейный формат — интересно всем",
+    "✅ С детьми, вдвоём или компанией — всем хорошо",
+]
+
+_ADV_SEA_CLOSE = [
+    "✅ Первая линия — море за минуту пешком",
+    "✅ Прямо у моря — не тратьте время на дорогу",
+    "✅ До пляжа — пара минут, считайте каждую минуту солнца",
+]
+
+_ADV_BONUS = [
+    "✅ Оформление за 1 день — быстро и без хлопот",
+    "✅ Поддержка 24/7 на всём отдыхе",
+    "✅ Проверенный туроператор — никаких сюрпризов",
+    "✅ Менеджер на связи до самого возвращения",
+    "✅ Оплата частями — без первого взноса",
+    "✅ Страховка уже включена в стоимость",
+]
+
+
+def _pick_advantages(meal: str, stars_digit: str, has_children_ok: bool = True,
+                     sea_close: bool = False, min_count: int = 4) -> list[str]:
+    """Случайно собирает набор преимуществ без дублей."""
+    advs: list[str] = []
+
+    # Питание
+    meal_upper = meal.upper().strip() if meal else ""
+    if meal_upper in ("UAI", "ULTRA ALL INCLUSIVE"):
+        advs.append(random.choice(_ADV_MEAL_UAI))
+    elif meal_upper in ("AI", "ALL", "ALL INCLUSIVE"):
+        advs.append(random.choice(_ADV_MEAL_AI))
+    elif meal_upper in ("HB", "HALF BOARD"):
+        advs.append(random.choice(_ADV_MEAL_HB))
+    elif meal_upper in ("BB", "BED & BREAKFAST", "BED AND BREAKFAST"):
+        advs.append(random.choice(_ADV_MEAL_BB))
+
+    # Звёзды
+    if stars_digit and stars_digit.isdigit():
+        s = int(stars_digit)
+        if s >= 5:
+            advs.append(random.choice(_ADV_STARS_5).format(s=s))
+        elif s >= 4:
+            advs.append(random.choice(_ADV_STARS_4).format(s=s))
+
+    # Море рядом
+    if sea_close:
+        advs.append(random.choice(_ADV_SEA_CLOSE))
+
+    # Вылет из Уфы и горящая цена — всегда (но случайные формулировки)
+    advs.append(random.choice(_ADV_FROM_UFA))
+    advs.append(random.choice(_ADV_HOT_PRICE))
+
+    # Добор до min_count из семейных и бонусов
+    remaining_pools = [_ADV_FAMILY, _ADV_BONUS] if has_children_ok else [_ADV_BONUS]
+    attempts = 0
+    while len(advs) < min_count and attempts < 10:
+        pool = random.choice(remaining_pools)
+        candidate = random.choice(pool)
+        if candidate not in advs:
+            advs.append(candidate)
+        attempts += 1
+
+    return advs
+
+
 def _random_headline(country: str, hotel: str, nights: str,
                      price_str: str, meal_ru: str, stars_str: str) -> str:
     """
@@ -393,31 +523,34 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
       except Exception:
         pass  # Если API недоступен — используем шаблон
 
-    # Шаблонный вариант без ИИ
+    # Шаблонный вариант без ИИ — случайные описания
+    country_acc = _country_acc(country)
+    desc_5_pool = [
+        f"Роскошный отель премиум-класса в самом сердце {resort}. Идеально для тех, кто ценит высокий сервис.",
+        f"Премиум-отель в {resort} — уровень, к которому быстро привыкаешь.",
+        f"{resort}, высшая категория отеля — отдых без компромиссов.",
+        f"Пятёрочный комфорт в {resort}: от встречи до проводов всё продумано.",
+    ]
+    desc_4_pool = [
+        f"Отличный отель в {resort} с хорошим уровнем сервиса. Прекрасный выбор для пар и семей.",
+        f"Проверенный вариант в {resort} — комфортно, без излишеств и по делу.",
+        f"{resort}: четвёрка, которая стоит своих денег.",
+        f"Удобный отель в {resort} — всё необходимое, чтобы отдыхать, а не переживать.",
+    ]
+    desc_default_pool = [
+        f"Комфортный отдых в {resort} по приятной цене. Всё необходимое для хорошего отпуска.",
+        f"{resort} — бюджетно и без лишних хлопот.",
+        f"Недорогой вариант в {resort} — отдохнуть и не разориться.",
+        f"Простой и удобный отель в {resort} — главное впереди, на пляже.",
+    ]
     if stars.isdigit() and int(stars) >= 5:
-        description = f"Роскошный отель премиум-класса в самом сердце {resort}. Идеально для тех, кто ценит высокий сервис и комфорт."
+        description = random.choice(desc_5_pool)
     elif stars.isdigit() and int(stars) >= 4:
-        description = f"Отличный отель в {resort} с высоким уровнем сервиса. Прекрасный выбор для семейного отдыха и пар."
+        description = random.choice(desc_4_pool)
     else:
-        description = f"Комфортный отдых в {resort} по отличной цене. Всё необходимое для незабываемого путешествия."
+        description = random.choice(desc_default_pool)
 
-    # Преимущества — без дублей
-    advantages = []
-    if meal in ("AI", "UAI", "Ultra All Inclusive", "All Inclusive", "Ultra All inclusive"):
-        advantages.append("✅ Всё включено — еда, напитки, развлечения")
-    elif meal in ("HB", "Half Board"):
-        advantages.append("✅ Полупансион — завтрак и ужин включены")
-    elif meal in ("BB", "Bed & Breakfast", "Bed and Breakfast"):
-        advantages.append("✅ Завтрак включён")
-
-    if stars.isdigit() and int(stars) >= 5:
-        advantages.append(f"✅ Отель {stars}⭐ — премиум уровень сервиса")
-    elif stars.isdigit() and int(stars) >= 4:
-        advantages.append(f"✅ Отель {stars}⭐ — высокий уровень комфорта")
-
-    advantages.append("✅ Вылет из Уфы — не нужно добираться до Москвы")
-    advantages.append("✅ Горящая цена — успей забронировать!")
-
+    advantages = _pick_advantages(meal=meal, stars_digit=stars)
     advantages_str = "\n".join(advantages)
 
     return f"""<b>{headline}</b>
@@ -443,14 +576,22 @@ def generate_post_without_ai(tour: Tour) -> str:
     Используется как запасной вариант если нет API-ключа.
     """
     sea_line = f"🌊 До моря: {tour.distance_sea} м" if tour.distance_sea else ""
+    country_acc = _country_acc(tour.country)
 
-    advantages = [f"✅ Питание: {tour.meal_label}"]
-    if tour.hotel_stars >= 4:
-        advantages.append(f"✅ Отель {tour.hotel_stars}★ — высокий уровень сервиса")
-    if tour.distance_sea and tour.distance_sea <= 100:
-        advantages.append(f"✅ Первая линия — {tour.distance_sea} м до пляжа")
-    if tour.children == 0:
-        advantages.append("✅ Подходит для взрослых и семей с детьми")
+    desc_pool = [
+        f"Отличный отдых в {country_acc} ждёт вас!",
+        f"{tour.country} — солнце, море и настоящий отпуск.",
+        f"Пора в отпуск: {tour.country} встречает уже совсем скоро.",
+        f"Тёплое море и ласковое солнце — всё это {tour.country}.",
+        f"{tour.country}: отдохнуть так, чтобы хватило впечатлений надолго.",
+    ]
+    description = random.choice(desc_pool)
+
+    advantages = _pick_advantages(
+        meal=tour.meal,
+        stars_digit=str(tour.hotel_stars) if tour.hotel_stars else "",
+        sea_close=bool(tour.distance_sea and tour.distance_sea <= 100),
+    )
 
     return POST_TEMPLATE.format(
         country          = tour.country,
@@ -463,7 +604,7 @@ def generate_post_without_ai(tour: Tour) -> str:
         meal             = _meal_ru(tour.meal_label),
         sea_line         = sea_line,
         price_per_person = tour.formatted_price_per_person,
-        ai_description   = f"Отличный отдых в {_country_acc(tour.country)} ждёт вас!",
+        ai_description   = description,
         ai_advantages    = "\n".join(advantages),
         country_tag      = _country_tag(tour.country),
     )
