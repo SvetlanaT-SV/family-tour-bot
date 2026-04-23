@@ -327,10 +327,13 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                 }
                 _save_pending(PENDING_POSTS)
                 preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{tour_id}"),
-                    InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
-                ]])
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Сейчас",       callback_data=f"approve_{tour_id}"),
+                        InlineKeyboardButton("⏰ По расписанию", callback_data=f"schedule_{tour_id}"),
+                    ],
+                    [InlineKeyboardButton("❌ Пропустить", callback_data=f"reject_{tour_id}")],
+                ])
 
                 # Скачиваем фото один раз, отправляем всем админам
                 photo_content = None
