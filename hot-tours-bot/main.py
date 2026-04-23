@@ -163,28 +163,34 @@ async def search_tourvisor_tours(context: ContextTypes.DEFAULT_TYPE = None):
                 InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
             ]])
 
-            msg_sent = False
+            photo_content = None
             if photo_url:
                 try:
                     resp = _requests.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
                     if resp.status_code == 200:
+                        photo_content = resp.content
+                except Exception:
+                    pass
+
+            for admin_id in Config.TELEGRAM_ADMIN_IDS:
+                try:
+                    if photo_content:
                         await bot.send_photo(
-                            chat_id=Config.TELEGRAM_ADMIN_ID,
-                            photo=BytesIO(resp.content),
+                            chat_id=admin_id,
+                            photo=BytesIO(photo_content),
                             caption=preview,
                             parse_mode="HTML",
                             reply_markup=keyboard,
                         )
-                        msg_sent = True
-                except Exception:
-                    pass
-            if not msg_sent:
-                await bot.send_message(
-                    chat_id=Config.TELEGRAM_ADMIN_ID,
-                    text=preview,
-                    parse_mode="HTML",
-                    reply_markup=keyboard,
-                )
+                    else:
+                        await bot.send_message(
+                            chat_id=admin_id,
+                            text=preview,
+                            parse_mode="HTML",
+                            reply_markup=keyboard,
+                        )
+                except Exception as send_err:
+                    logger.warning(f"Не удалось отправить админу {admin_id}: {send_err}")
 
             sent[tour.tour_id] = datetime.now().isoformat()
             count += 1
@@ -237,31 +243,37 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
                 ]])
 
-                sent = False
+                # Скачиваем фото один раз, отправляем всем админам
+                photo_content = None
                 if photo_url:
                     try:
-                        # Скачиваем фото сами — обходим блокировки сайтов
                         resp = _requests.get(photo_url, timeout=10, headers={
                             "User-Agent": "Mozilla/5.0"
                         })
                         if resp.status_code == 200:
+                            photo_content = resp.content
+                    except Exception as photo_err:
+                        logger.warning(f"  Фото не загрузилось: {photo_err}")
+
+                for admin_id in Config.TELEGRAM_ADMIN_IDS:
+                    try:
+                        if photo_content:
                             await bot.send_photo(
-                                chat_id=Config.TELEGRAM_ADMIN_ID,
-                                photo=BytesIO(resp.content),
+                                chat_id=admin_id,
+                                photo=BytesIO(photo_content),
                                 caption=preview,
                                 parse_mode="HTML",
                                 reply_markup=keyboard,
                             )
-                            sent = True
-                    except Exception as photo_err:
-                        logger.warning(f"  Фото не загрузилось: {photo_err}")
-                if not sent:
-                    await bot.send_message(
-                        chat_id=Config.TELEGRAM_ADMIN_ID,
-                        text=preview,
-                        parse_mode="HTML",
-                        reply_markup=keyboard,
-                    )
+                        else:
+                            await bot.send_message(
+                                chat_id=admin_id,
+                                text=preview,
+                                parse_mode="HTML",
+                                reply_markup=keyboard,
+                            )
+                    except Exception as send_err:
+                        logger.warning(f"  Не удалось отправить админу {admin_id}: {send_err}")
 
                 sheets.mark_tour_status(row_num, "НА ОДОБРЕНИИ",
                                          published_at=datetime.now().strftime("%d.%m.%Y %H:%M"))
@@ -270,7 +282,7 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                 tg = TelegramPublisher(
                     token=Config.TELEGRAM_BOT_TOKEN,
                     channel_id=Config.TELEGRAM_CHANNEL_ID,
-                    admin_id=Config.TELEGRAM_ADMIN_ID,
+                    admin_id=Config.TELEGRAM_ADMIN_IDS,
                 )
                 if Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHANNEL_ID:
                     tg.publish(text, photo_url)
@@ -287,11 +299,12 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     row_num, "ОПУБЛИКОВАН",
                     published_at=datetime.now().strftime("%d.%m.%Y %H:%M")
                 )
-                await bot.send_message(
-                    chat_id=Config.TELEGRAM_ADMIN_ID,
-                    text=f"✅ Опубликован тур:\n{name}\n{text[:200]}...",
-                    parse_mode="HTML",
-                )
+                for admin_id in Config.TELEGRAM_ADMIN_IDS:
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ Опубликован тур:\n{name}\n{text[:200]}...",
+                        parse_mode="HTML",
+                    )
 
         except Exception as e:
             logger.error(f"  ❌ Ошибка публикации {name}: {e}")

@@ -29,7 +29,9 @@ class Config:
     # ── Telegram ───────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "")
-    TELEGRAM_ADMIN_ID   = int(os.getenv("TELEGRAM_ADMIN_ID", "0"))
+    # TELEGRAM_ADMIN_ID может содержать несколько ID через запятую: "418012639,999999999"
+    TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in os.getenv("TELEGRAM_ADMIN_ID", "0").split(",") if x.strip().lstrip("-").isdigit()]
+    TELEGRAM_ADMIN_ID  = TELEGRAM_ADMIN_IDS[0] if TELEGRAM_ADMIN_IDS else 0
 
     # ── ВКонтакте ──────────────────────────────────────────────
     VK_TOKEN      = os.getenv("VK_TOKEN", "")       # токен группы — для публикации постов

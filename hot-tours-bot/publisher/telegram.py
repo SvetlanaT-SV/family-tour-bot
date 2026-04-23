@@ -24,15 +24,20 @@ class TelegramPublisher:
 
     API_URL = "https://api.telegram.org/bot{token}/{method}"
 
-    def __init__(self, token: str, channel_id: str, admin_id: int):
+    def __init__(self, token: str, channel_id: str, admin_id):
         """
         token      — токен бота от @BotFather
         channel_id — ID или username канала (например @family_tour_ufa)
-        admin_id   — твой личный Telegram ID для уведомлений
+        admin_id   — ID админа (int) или список ID (list[int]) для уведомлений
         """
         self.token      = token
         self.channel_id = channel_id
-        self.admin_id   = admin_id
+        # Поддерживаем одиночный ID и список
+        if isinstance(admin_id, (list, tuple)):
+            self.admin_ids = [int(x) for x in admin_id if x]
+        else:
+            self.admin_ids = [int(admin_id)] if admin_id else []
+        self.admin_id = self.admin_ids[0] if self.admin_ids else 0
 
     def _call(self, method: str, data: dict) -> dict:
         """Делает запрос к Telegram Bot API"""
@@ -122,12 +127,13 @@ class TelegramPublisher:
         return None
 
     def notify_admin(self, text: str) -> None:
-        """Отправляет текстовое уведомление руководителю"""
-        self._call("sendMessage", {
-            "chat_id":    self.admin_id,
-            "text":       text,
-            "parse_mode": "HTML",
-        })
+        """Отправляет текстовое уведомление всем админам."""
+        for admin_id in self.admin_ids:
+            self._call("sendMessage", {
+                "chat_id":    admin_id,
+                "text":       text,
+                "parse_mode": "HTML",
+            })
 
     def notify_new_lead(self, name: str, phone: str, tour: str,
                          dates: str, tourists: str, budget: str,

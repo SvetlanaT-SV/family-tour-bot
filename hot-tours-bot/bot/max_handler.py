@@ -72,8 +72,8 @@ def _send(user_id: int, text: str) -> None:
 
 
 def _notify_admin(lead: dict) -> None:
-    """Уведомляет руководителя о новой заявке через Telegram."""
-    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_ID:
+    """Уведомляет всех админов о новой заявке через Telegram."""
+    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_IDS:
         return
     text = (
         f"📥 <b>Новая заявка из MAX!</b>\n\n"
@@ -84,18 +84,15 @@ def _notify_admin(lead: dict) -> None:
         f"💰 Бюджет: {lead.get('budget', '—')}\n"
         f"🔗 MAX user_id: {lead.get('user_id', '—')}"
     )
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": Config.TELEGRAM_ADMIN_ID,
-                "text": text,
-                "parse_mode": "HTML",
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        logger.warning(f"MAX: не удалось уведомить администратора: {e}")
+    for admin_id in Config.TELEGRAM_ADMIN_IDS:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": admin_id, "text": text, "parse_mode": "HTML"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning(f"MAX: не удалось уведомить админа {admin_id}: {e}")
 
 
 def _save_lead(lead: dict) -> None:
@@ -120,8 +117,8 @@ def _save_lead(lead: dict) -> None:
 
 
 def _forward_to_admin(user_id: int, text: str) -> None:
-    """Пересылает сообщение клиента MAX в чат админа Telegram."""
-    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_ID:
+    """Пересылает сообщение клиента MAX всем админам в Telegram."""
+    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_IDS:
         return
     state = _conversations.get(user_id, {})
     name = state.get("name", "—")
@@ -131,14 +128,15 @@ def _forward_to_admin(user_id: int, text: str) -> None:
         f"📝 {text}\n\n"
         f"Чтобы ответить: <code>/max {user_id} ваш ответ</code>"
     )
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": Config.TELEGRAM_ADMIN_ID, "text": msg, "parse_mode": "HTML"},
-            timeout=10,
-        )
-    except Exception as e:
-        logger.warning(f"MAX: не удалось переслать админу: {e}")
+    for admin_id in Config.TELEGRAM_ADMIN_IDS:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": admin_id, "text": msg, "parse_mode": "HTML"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning(f"MAX: не удалось переслать админу {admin_id}: {e}")
 
 
 def _handle_message(user_id: int, text: str) -> None:

@@ -182,12 +182,12 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Не падаем если Sheets недоступен — главное уведомить руководителя
         print(f"⚠️  Ошибка сохранения в Sheets: {e}")
 
-    # ── Уведомляем руководителя ───────────────────────────────
+    # ── Уведомляем всех админов ───────────────────────────────
     try:
         tg = TelegramPublisher(
             token=Config.TELEGRAM_BOT_TOKEN,
             channel_id=Config.TELEGRAM_CHANNEL_ID,
-            admin_id=Config.TELEGRAM_ADMIN_ID,
+            admin_id=Config.TELEGRAM_ADMIN_IDS,
         )
         tg.notify_new_lead(
             name=lead["name"],
@@ -220,7 +220,7 @@ async def send_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     Команда /max USER_ID сообщение — отправляет сообщение клиенту MAX через бота.
     Доступна только админу.
     """
-    if update.effective_user.id != Config.TELEGRAM_ADMIN_ID:
+    if update.effective_user.id not in Config.TELEGRAM_ADMIN_IDS:
         return
 
     args = context.args or []
@@ -284,12 +284,18 @@ async def _handle_approval(update: Update,
     query = update.callback_query
     await query.answer()
 
-    if query.from_user.id != Config.TELEGRAM_ADMIN_ID:
+    if query.from_user.id not in Config.TELEGRAM_ADMIN_IDS:
         await query.answer("⛔ Только для администратора", show_alert=True)
         return
 
     data = query.data
     msg = query.message
+
+    # Защита от двойной публикации: проверяем метку в сообщении
+    existing_text = (msg.caption_html or msg.text_html or msg.caption or msg.text or "")
+    if "ОПУБЛИКОВАНО" in existing_text or "ПРОПУЩЕН" in existing_text:
+        await query.answer("Уже обработано другим админом", show_alert=True)
+        return
 
     if data.startswith("approve_"):
         tour_id = data.replace("approve_", "")

@@ -79,8 +79,8 @@ def _send(user_id: int, text: str) -> None:
 
 
 def _notify_admin(lead: dict) -> None:
-    """Уведомляет руководителя о новой заявке через Telegram."""
-    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_ID:
+    """Уведомляет всех админов о новой заявке через Telegram."""
+    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_IDS:
         return
     vk_link = f"vk.com/id{lead.get('user_id', '')}"
     text = (
@@ -92,18 +92,15 @@ def _notify_admin(lead: dict) -> None:
         f"💰 Бюджет: {lead.get('budget', '—')}\n"
         f"🔗 ВК: {vk_link}"
     )
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id":    Config.TELEGRAM_ADMIN_ID,
-                "text":       text,
-                "parse_mode": "HTML",
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        logger.warning(f"VK: не удалось уведомить администратора: {e}")
+    for admin_id in Config.TELEGRAM_ADMIN_IDS:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": admin_id, "text": text, "parse_mode": "HTML"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning(f"VK: не удалось уведомить админа {admin_id}: {e}")
 
 
 def _save_lead(lead: dict) -> None:
