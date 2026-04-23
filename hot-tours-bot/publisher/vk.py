@@ -52,37 +52,43 @@ class VKPublisher:
             logger.warning(f"VK: ошибка запроса: {e}")
             return {}
 
-    def _upload_photo(self, photo_url: str) -> Optional[str]:
+    def _upload_photo(self, photo_url: Optional[str] = None,
+                      photo_bytes: Optional[bytes] = None) -> Optional[str]:
         """
         Загружает фото на стену группы через групповой токен.
-        У токена должны быть права: photos, wall.
+        Принимает либо URL, либо готовые bytes. photo_bytes имеет приоритет.
         Возвращает attachment-строку вида "photo{owner_id}_{photo_id}".
         """
-        # Шаг 1: получаем upload URL (группа указана через group_id)
         upload_data = self._call(
             "photos.getWallUploadServer",
             {"group_id": self.group_id},
         )
-        upload_url = upload_data.get("response", {}).get("upload_url")
-        if not upload_url:
+        upload_url_vk = upload_data.get("response", {}).get("upload_url")
+        if not upload_url_vk:
             logger.warning(f"VK: upload_url не получен, ответ={upload_data}")
             return None
 
-        # Шаг 2: скачиваем фото по внешней ссылке
-        try:
-            img_response = requests.get(photo_url, timeout=15, headers={
-                "User-Agent": "Mozilla/5.0"
-            })
-            img_response.raise_for_status()
-        except Exception as e:
-            logger.warning(f"VK: не удалось скачать фото: {e}")
+        # Получаем содержимое фото
+        if photo_bytes:
+            img_content = photo_bytes
+        elif photo_url:
+            try:
+                img_response = requests.get(photo_url, timeout=15, headers={
+                    "User-Agent": "Mozilla/5.0"
+                })
+                img_response.raise_for_status()
+                img_content = img_response.content
+            except Exception as e:
+                logger.warning(f"VK: не удалось скачать фото: {e}")
+                return None
+        else:
             return None
 
-        # Шаг 3: загружаем на сервер ВК
+        # Загружаем на сервер ВК
         try:
             upload_response = requests.post(
-                upload_url,
-                files={"photo": ("photo.jpg", img_response.content, "image/jpeg")},
+                upload_url_vk,
+                files={"photo": ("photo.jpg", img_content, "image/jpeg")},
                 timeout=30,
             ).json()
         except Exception as e:
@@ -110,14 +116,13 @@ class VKPublisher:
         logger.warning(f"VK: не удалось сохранить фото, ответ={save_data}")
         return None
 
-    def publish(self, text: str, photo_url: Optional[str] = None) -> Optional[int]:
+    def publish(self, text: str, photo_url: Optional[str] = None,
+                photo_bytes: Optional[bytes] = None) -> Optional[int]:
         """Публикует пост на стене группы. Возвращает post_id."""
-        # Заменяем ссылку на бота
         vk_text = text.replace(
             "📩 Написать нам: <b>@hottourpegas_bot</b>",
             "📩 Написать нам: vk.me/family_toor",
         )
-        # Убираем HTML-теги — ВКонтакте их не поддерживает в постах
         vk_text = re.sub(r"<[^>]+>", "", vk_text)
 
         params = {
@@ -126,13 +131,11 @@ class VKPublisher:
             "message":    vk_text,
         }
 
-        # Загружаем фото через user token
-        if photo_url:
-            attachment = self._upload_photo(photo_url)
+        if photo_url or photo_bytes:
+            attachment = self._upload_photo(photo_url=photo_url, photo_bytes=photo_bytes)
             if attachment:
                 params["attachments"] = attachment
-            else:
-                # Если фото не загрузилось — добавляем ссылку в текст
+            elif photo_url:
                 params["message"] = f"{vk_text}\n\n{photo_url}"
 
         result = self._call("wall.post", params)

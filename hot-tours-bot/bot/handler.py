@@ -245,11 +245,11 @@ async def _handle_approval(update: Update,
         stored = pending_posts.get(tour_id, {})
         post_text = stored.get("text", "")
         photo_url = stored.get("photo_url", "")
+        photo_bytes = None
 
         # Если после перезапуска хранилище пустое — восстанавливаем из сообщения
         if not post_text:
             raw = msg.caption_html or msg.text_html or ""
-            # Убираем заголовок превью
             for prefix in [
                 "📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n",
                 "📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:\n\n",
@@ -258,29 +258,40 @@ async def _handle_approval(update: Update,
                     raw = raw.split(prefix, 1)[1]
                     break
             post_text = raw.strip()
-            logger.info(f"PENDING_POSTS пуст — текст восстановлен из сообщения ({len(post_text)} символов)")
+            logger.info(f"PENDING_POSTS пуст — текст восстановлен ({len(post_text)} символов)")
+
+        # Если фото URL нет, но в сообщении есть фото — скачиваем с Telegram
+        if not photo_url and msg.photo:
+            try:
+                tg_file = await msg.photo[-1].get_file()
+                photo_bytes = bytes(await tg_file.download_as_bytearray())
+                logger.info(f"Фото восстановлено из Telegram ({len(photo_bytes)} байт)")
+            except Exception as e:
+                logger.warning(f"Не удалось скачать фото из Telegram: {e}")
+
+        logger.info(f"Approve: photo_url={bool(photo_url)}, photo_bytes={bool(photo_bytes)}")
 
         try:
-            if photo_url:
+            from io import BytesIO
+            tg_photo_content = None
+            if photo_bytes:
+                tg_photo_content = photo_bytes
+            elif photo_url:
                 try:
                     import requests as _req
-                    from io import BytesIO
                     resp = _req.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
                     if resp.status_code == 200:
-                        await context.bot.send_photo(
-                            chat_id=Config.TELEGRAM_CHANNEL_ID,
-                            photo=BytesIO(resp.content),
-                            caption=post_text,
-                            parse_mode="HTML",
-                        )
-                    else:
-                        raise Exception("фото недоступно")
+                        tg_photo_content = resp.content
                 except Exception:
-                    await context.bot.send_message(
-                        chat_id=Config.TELEGRAM_CHANNEL_ID,
-                        text=post_text,
-                        parse_mode="HTML",
-                    )
+                    pass
+
+            if tg_photo_content:
+                await context.bot.send_photo(
+                    chat_id=Config.TELEGRAM_CHANNEL_ID,
+                    photo=BytesIO(tg_photo_content),
+                    caption=post_text,
+                    parse_mode="HTML",
+                )
             else:
                 await context.bot.send_message(
                     chat_id=Config.TELEGRAM_CHANNEL_ID,
@@ -293,7 +304,11 @@ async def _handle_approval(update: Update,
             if Config.VK_TOKEN and Config.VK_GROUP_ID:
                 try:
                     vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
-                    vk_result = vk.publish(post_text, photo_url or None)
+                    vk_result = vk.publish(
+                        post_text,
+                        photo_url=photo_url or None,
+                        photo_bytes=tg_photo_content,
+                    )
                     logger.info(f"VK: результат публикации={vk_result}")
                 except Exception as vk_err:
                     logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
