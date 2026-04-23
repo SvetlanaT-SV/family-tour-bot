@@ -11,11 +11,18 @@ bot/max_handler.py — Обработчик входящих сообщений 
 Запускается в отдельном потоке параллельно с Telegram ботом.
 """
 
+import re
 import time
 import logging
 import threading
 import requests
 from typing import Optional
+
+
+def _is_valid_phone(text: str) -> bool:
+    """Телефон валиден если содержит не менее 10 цифр."""
+    digits = re.sub(r"\D", "", text)
+    return len(digits) >= 10
 
 from config import Config
 from sheets.client import SheetsClient
@@ -179,6 +186,12 @@ def _handle_message(user_id: int, text: str) -> None:
 
     # Шаг 5: получили телефон — диалог завершён
     if step == STEP_PHONE:
+        if not _is_valid_phone(text):
+            _send(user_id,
+                "Пожалуйста, укажите ваш номер телефона цифрами (минимум 10 цифр).\n\n"
+                "Например: +7 917 044-21-00"
+            )
+            return
         state["phone"]   = text
         state["step"]    = STEP_DONE
         state["user_id"] = user_id
