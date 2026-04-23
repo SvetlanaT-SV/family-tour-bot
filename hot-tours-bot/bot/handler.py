@@ -248,7 +248,13 @@ async def send_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             timeout=10,
         )
         if resp.status_code < 400:
-            await update.message.reply_text(f"✅ Отправлено клиенту MAX (id={max_user_id})")
+            # Включаем режим прямой переписки — ответы клиента пойдут админу
+            from bot.max_handler import register_admin_chat
+            register_admin_chat(max_user_id)
+            await update.message.reply_text(
+                f"✅ Сообщение доставлено клиенту MAX (id={max_user_id}).\n"
+                f"Его ответ придёт сюда же."
+            )
         else:
             await update.message.reply_text(f"❌ Ошибка MAX API {resp.status_code}: {resp.text[:200]}")
     except Exception as e:

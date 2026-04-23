@@ -43,6 +43,15 @@ STEP_DONE     = "done"
 # Хранилище состояний диалога: user_id → {step, name, phone, ...}
 _conversations: dict = {}
 
+# user_id пользователей MAX, с которыми админ ведёт прямой диалог
+# (после /max их сообщения пересылаются админу в Telegram, а не запускают опрос)
+_admin_chat_users: set = set()
+
+
+def register_admin_chat(max_user_id: int) -> None:
+    """Включает режим прямой переписки: сообщения от этого клиента идут админу."""
+    _admin_chat_users.add(max_user_id)
+
 
 def _headers() -> dict:
     return {"Authorization": Config.MAX_TOKEN}
@@ -110,9 +119,37 @@ def _save_lead(lead: dict) -> None:
         logger.warning(f"MAX: не удалось сохранить заявку в Sheets: {e}")
 
 
+def _forward_to_admin(user_id: int, text: str) -> None:
+    """Пересылает сообщение клиента MAX в чат админа Telegram."""
+    if not Config.TELEGRAM_BOT_TOKEN or not Config.TELEGRAM_ADMIN_ID:
+        return
+    state = _conversations.get(user_id, {})
+    name = state.get("name", "—")
+    msg = (
+        f"💬 <b>Ответ клиента MAX</b>\n\n"
+        f"👤 {name} (id={user_id})\n"
+        f"📝 {text}\n\n"
+        f"Чтобы ответить: <code>/max {user_id} ваш ответ</code>"
+    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": Config.TELEGRAM_ADMIN_ID, "text": msg, "parse_mode": "HTML"},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning(f"MAX: не удалось переслать админу: {e}")
+
+
 def _handle_message(user_id: int, text: str) -> None:
     """Обрабатывает входящее сообщение и ведёт диалог."""
     text = (text or "").strip()
+
+    # Если админ ведёт прямую переписку с этим клиентом — пересылаем ему
+    if user_id in _admin_chat_users:
+        _forward_to_admin(user_id, text)
+        return
+
     state = _conversations.get(user_id, {})
     step  = state.get("step", STEP_START)
 
