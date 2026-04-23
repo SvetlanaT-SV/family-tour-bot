@@ -229,48 +229,39 @@ _ADV_BONUS = [
 
 
 def _pick_advantages(meal: str, stars_digit: str, has_children_ok: bool = True,
-                     sea_close: bool = False, min_count: int = 4) -> list[str]:
-    """Случайно собирает набор преимуществ без дублей."""
-    advs: list[str] = []
+                     sea_close: bool = False, count: int = 2) -> list[str]:
+    """Случайно собирает набор преимуществ без дублей. По умолчанию 2 галочки."""
+    # Все пулы из которых можем брать
+    all_pools = [_ADV_FROM_UFA, _ADV_HOT_PRICE]
 
-    # Питание
     meal_upper = meal.upper().strip() if meal else ""
     if meal_upper in ("UAI", "ULTRA ALL INCLUSIVE"):
-        advs.append(random.choice(_ADV_MEAL_UAI))
+        all_pools.append(_ADV_MEAL_UAI)
     elif meal_upper in ("AI", "ALL", "ALL INCLUSIVE"):
-        advs.append(random.choice(_ADV_MEAL_AI))
+        all_pools.append(_ADV_MEAL_AI)
     elif meal_upper in ("HB", "HALF BOARD"):
-        advs.append(random.choice(_ADV_MEAL_HB))
+        all_pools.append(_ADV_MEAL_HB)
     elif meal_upper in ("BB", "BED & BREAKFAST", "BED AND BREAKFAST"):
-        advs.append(random.choice(_ADV_MEAL_BB))
+        all_pools.append(_ADV_MEAL_BB)
 
-    # Звёзды
     if stars_digit and stars_digit.isdigit():
         s = int(stars_digit)
         if s >= 5:
-            advs.append(random.choice(_ADV_STARS_5).format(s=s))
+            all_pools.append([t.format(s=s) for t in _ADV_STARS_5])
         elif s >= 4:
-            advs.append(random.choice(_ADV_STARS_4).format(s=s))
+            all_pools.append([t.format(s=s) for t in _ADV_STARS_4])
 
-    # Море рядом
     if sea_close:
-        advs.append(random.choice(_ADV_SEA_CLOSE))
+        all_pools.append(_ADV_SEA_CLOSE)
 
-    # Вылет из Уфы и горящая цена — всегда (но случайные формулировки)
-    advs.append(random.choice(_ADV_FROM_UFA))
-    advs.append(random.choice(_ADV_HOT_PRICE))
+    if has_children_ok:
+        all_pools.append(_ADV_FAMILY)
 
-    # Добор до min_count из семейных и бонусов
-    remaining_pools = [_ADV_FAMILY, _ADV_BONUS] if has_children_ok else [_ADV_BONUS]
-    attempts = 0
-    while len(advs) < min_count and attempts < 10:
-        pool = random.choice(remaining_pools)
-        candidate = random.choice(pool)
-        if candidate not in advs:
-            advs.append(candidate)
-        attempts += 1
+    all_pools.append(_ADV_BONUS)
 
-    return advs
+    # Выбираем count разных пулов и из каждого по одной случайной фразе
+    chosen_pools = random.sample(all_pools, k=min(count, len(all_pools)))
+    return [random.choice(pool) for pool in chosen_pools]
 
 
 def _random_headline(country: str, hotel: str, nights: str,
