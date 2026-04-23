@@ -215,6 +215,46 @@ async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+async def send_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Команда /max USER_ID сообщение — отправляет сообщение клиенту MAX через бота.
+    Доступна только админу.
+    """
+    if update.effective_user.id != Config.TELEGRAM_ADMIN_ID:
+        return
+
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Использование: /max USER_ID текст\n\n"
+            "Пример: /max 42763058 Здравствуйте! Это менеджер Family Tour."
+        )
+        return
+
+    try:
+        max_user_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("USER_ID должен быть числом")
+        return
+
+    text = " ".join(args[1:])
+    try:
+        import requests as _req
+        resp = _req.post(
+            "https://platform-api.max.ru/messages",
+            headers={"Authorization": Config.MAX_TOKEN},
+            params={"user_id": max_user_id},
+            json={"text": text, "format": "markdown"},
+            timeout=10,
+        )
+        if resp.status_code < 400:
+            await update.message.reply_text(f"✅ Отправлено клиенту MAX (id={max_user_id})")
+        else:
+            await update.message.reply_text(f"❌ Ошибка MAX API {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Не удалось отправить: {e}")
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Клиент написал /cancel — прерываем диалог"""
     await update.message.reply_text(
@@ -406,6 +446,9 @@ def build_application(pending_posts: dict = None, save_pending=None) -> Applicat
     )
 
     app.add_handler(conv_handler)
+
+    # Команда /max для отправки сообщений клиентам MAX
+    app.add_handler(CommandHandler("max", send_to_max))
 
     # Обработчик кнопок одобрения (для руководителя)
     app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject)_"))
