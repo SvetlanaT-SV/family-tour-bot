@@ -70,6 +70,68 @@ def _save_pending(posts: dict) -> None:
 # Хранилище постов ожидающих одобрения: tour_id → {text, photo_url}
 PENDING_POSTS: dict = _load_pending()
 
+# Файл для запланированных постов
+_SCHEDULED_FILE = os.path.join(os.path.dirname(__file__), "scheduled_posts.json")
+
+
+def _load_scheduled() -> list:
+    """Загружает очередь запланированных постов из файла."""
+    if os.path.exists(_SCHEDULED_FILE):
+        try:
+            with open(_SCHEDULED_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f) or []
+                if data:
+                    logger.info(f"📂 Загружено {len(data)} запланированных постов")
+                return data
+        except Exception:
+            pass
+    return []
+
+
+def _save_scheduled(posts: list) -> None:
+    try:
+        with open(_SCHEDULED_FILE, "w", encoding="utf-8") as f:
+            json.dump(posts, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить scheduled_posts: {e}")
+
+
+SCHEDULED_POSTS: list = _load_scheduled()
+
+
+async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE = None):
+    """Каждую минуту публикует запланированные посты, у которых пришло время."""
+    if not SCHEDULED_POSTS:
+        return
+
+    from datetime import datetime, timezone
+    import base64
+    from bot.handler import publish_to_channels
+
+    now = datetime.now(timezone.utc)
+    due = [p for p in SCHEDULED_POSTS if datetime.fromisoformat(p["scheduled_for"]) <= now]
+    if not due:
+        return
+
+    logger.info(f"⏰ Время публикации: {len(due)} пост(ов)")
+
+    for entry in due:
+        try:
+            photo_bytes = base64.b64decode(entry["photo_b64"]) if entry.get("photo_b64") else None
+            ok, _ = await publish_to_channels(
+                context.bot,
+                entry.get("text", ""),
+                photo_url=entry.get("photo_url") or None,
+                photo_bytes=photo_bytes,
+                tour_id=entry.get("tour_id", ""),
+            )
+            logger.info(f"Запланированный пост {entry.get('tour_id')}: ok={ok}")
+        except Exception as e:
+            logger.error(f"Ошибка публикации запланированного поста: {e}")
+        finally:
+            SCHEDULED_POSTS.remove(entry)
+            _save_scheduled(SCHEDULED_POSTS)
+
 # ── Tourvisor: отслеживание уже отправленных туров ─────────────
 _SENT_TOURS_FILE = os.path.join(os.path.dirname(__file__), "sent_tours.json")
 
@@ -158,10 +220,13 @@ async def search_tourvisor_tours(context: ContextTypes.DEFAULT_TYPE = None):
             _save_pending(PENDING_POSTS)
 
             preview = f"📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n{text}"
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ Опубликовать", callback_data=f"approve_{tour_id}"),
-                InlineKeyboardButton("❌ Пропустить",   callback_data=f"reject_{tour_id}"),
-            ]])
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Сейчас",       callback_data=f"approve_{tour_id}"),
+                    InlineKeyboardButton("⏰ По расписанию", callback_data=f"schedule_{tour_id}"),
+                ],
+                [InlineKeyboardButton("❌ Пропустить", callback_data=f"reject_{tour_id}")],
+            ])
 
             photo_content = None
             if photo_url:
@@ -334,6 +399,15 @@ async def post_init(application: Application) -> None:
     )
     logger.info("✅ Планировщик: поиск туров Tourvisor каждые 4 часа")
 
+    # Публикация запланированных постов — каждую минуту
+    application.job_queue.run_repeating(
+        check_scheduled_posts,
+        interval=60,
+        first=30,
+        name="scheduled_publish",
+    )
+    logger.info(f"✅ Планировщик: проверка расписания каждую минуту (слоты {Config.PUBLISH_HOURS} МСК)")
+
 
 if __name__ == "__main__":
     import time
@@ -343,7 +417,12 @@ if __name__ == "__main__":
     # VK polling отключён — используется Senler
     start_max_polling()
 
-    app = build_application(PENDING_POSTS, save_pending=_save_pending)
+    app = build_application(
+        PENDING_POSTS,
+        save_pending=_save_pending,
+        scheduled_posts=SCHEDULED_POSTS,
+        save_scheduled=_save_scheduled,
+    )
     app.post_init = post_init
 
     # Если Telegram ещё держит старое соединение — ждём и повторяем

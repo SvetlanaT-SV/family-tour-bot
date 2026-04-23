@@ -271,12 +271,99 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+# ── Публикация поста во все каналы (TG / VK / MAX) ────────────
+
+async def publish_to_channels(bot, post_text: str,
+                               photo_url: str = None,
+                               photo_bytes: bytes = None,
+                               tour_id: str = "") -> tuple[bool, str]:
+    """
+    Публикует пост в Telegram-канал, ВК и MAX.
+    Возвращает (успех, сообщение_о_статусе).
+    """
+    from io import BytesIO
+
+    tg_photo_content = None
+    if photo_bytes:
+        tg_photo_content = photo_bytes
+    elif photo_url:
+        try:
+            import requests as _req
+            resp = _req.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code == 200:
+                tg_photo_content = resp.content
+        except Exception:
+            pass
+
+    try:
+        if tg_photo_content:
+            await bot.send_photo(
+                chat_id=Config.TELEGRAM_CHANNEL_ID,
+                photo=BytesIO(tg_photo_content),
+                caption=post_text,
+                parse_mode="HTML",
+            )
+        else:
+            await bot.send_message(
+                chat_id=Config.TELEGRAM_CHANNEL_ID,
+                text=post_text,
+                parse_mode="HTML",
+            )
+
+        if Config.VK_TOKEN and Config.VK_GROUP_ID:
+            try:
+                vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
+                vk.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
+            except Exception as vk_err:
+                logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
+
+        if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
+            try:
+                max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
+                max_pub.publish(post_text, photo_url or None)
+            except Exception as max_err:
+                logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")
+
+        if tour_id.startswith("sheets_"):
+            try:
+                row_num = int(tour_id.replace("sheets_", ""))
+                sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+                sheets.mark_tour_status(row_num, "ОПУБЛИКОВАН")
+            except Exception as se:
+                logger.warning(f"Sheets update failed: {se}")
+
+        return True, "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
+
+    except Exception as e:
+        return False, f"\n\n❌ Ошибка: {e}"
+
+
+def _next_schedule_slot(now_utc=None) -> "datetime":
+    """
+    Возвращает ближайший слот публикации (9/14/19 МСК) в UTC.
+    Если сейчас между слотами — следующий. Если после 19:00 — завтра 9:00.
+    """
+    from datetime import datetime, timedelta, timezone
+    msk = timezone(timedelta(hours=3))
+    now = (now_utc or datetime.now(timezone.utc)).astimezone(msk)
+    for hour in Config.PUBLISH_HOURS:
+        slot = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if slot > now:
+            return slot.astimezone(timezone.utc)
+    # Все слоты на сегодня прошли — завтра первый
+    tomorrow = now + timedelta(days=1)
+    slot = tomorrow.replace(hour=Config.PUBLISH_HOURS[0], minute=0, second=0, microsecond=0)
+    return slot.astimezone(timezone.utc)
+
+
 # ── Обработчик кнопок одобрения (для руководителя) ───────────
 
 async def _handle_approval(update: Update,
                             context: ContextTypes.DEFAULT_TYPE,
                             pending_posts: dict,
-                            save_pending=None) -> None:
+                            save_pending=None,
+                            scheduled_posts: list = None,
+                            save_scheduled=None) -> None:
     """
     Обрабатывает нажатие кнопок ✅/❌ в превью поста.
     Срабатывает только у руководителя (проверяем admin_id).
@@ -297,104 +384,82 @@ async def _handle_approval(update: Update,
         await query.answer("Уже обработано другим админом", show_alert=True)
         return
 
-    if data.startswith("approve_"):
-        tour_id = data.replace("approve_", "")
+    # Общий блок для approve и schedule — восстановление текста и фото
+    if data.startswith("approve_") or data.startswith("schedule_"):
+        prefix_len = len("approve_") if data.startswith("approve_") else len("schedule_")
+        tour_id = data[prefix_len:]
 
-        # Берём оригинальный пост с HTML из хранилища
         stored = pending_posts.get(tour_id, {})
         post_text = stored.get("text", "")
         photo_url = stored.get("photo_url", "")
         photo_bytes = None
 
-        # Если после перезапуска хранилище пустое — восстанавливаем из сообщения
         if not post_text:
             raw = msg.caption_html or msg.text_html or ""
-            for prefix in [
+            for p in [
                 "📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n",
                 "📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:\n\n",
             ]:
-                if prefix in raw:
-                    raw = raw.split(prefix, 1)[1]
+                if p in raw:
+                    raw = raw.split(p, 1)[1]
                     break
             post_text = raw.strip()
             logger.info(f"PENDING_POSTS пуст — текст восстановлен ({len(post_text)} символов)")
 
-        # Если фото URL нет, но в сообщении есть фото — скачиваем с Telegram
         if not photo_url and msg.photo:
             try:
                 tg_file = await msg.photo[-1].get_file()
                 photo_bytes = bytes(await tg_file.download_as_bytearray())
                 logger.info(f"Фото восстановлено из Telegram ({len(photo_bytes)} байт)")
             except Exception as e:
-                logger.warning(f"Не удалось скачать фото из Telegram: {e}")
+                logger.warning(f"Не удалось скачать фото: {e}")
 
+    if data.startswith("approve_"):
         logger.info(f"Approve: photo_url={bool(photo_url)}, photo_bytes={bool(photo_bytes)}")
+        ok, status_line = await publish_to_channels(
+            context.bot, post_text,
+            photo_url=photo_url or None,
+            photo_bytes=photo_bytes,
+            tour_id=tour_id,
+        )
+        pending_posts.pop(tour_id, None)
+        if save_pending:
+            save_pending(pending_posts)
 
         try:
-            from io import BytesIO
-            tg_photo_content = None
-            if photo_bytes:
-                tg_photo_content = photo_bytes
-            elif photo_url:
-                try:
-                    import requests as _req
-                    resp = _req.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                    if resp.status_code == 200:
-                        tg_photo_content = resp.content
-                except Exception:
-                    pass
-
-            if tg_photo_content:
-                await context.bot.send_photo(
-                    chat_id=Config.TELEGRAM_CHANNEL_ID,
-                    photo=BytesIO(tg_photo_content),
-                    caption=post_text,
-                    parse_mode="HTML",
-                )
+            if msg.photo:
+                await query.edit_message_caption(
+                    caption=(msg.caption or "") + status_line, parse_mode="HTML")
             else:
-                await context.bot.send_message(
-                    chat_id=Config.TELEGRAM_CHANNEL_ID,
-                    text=post_text,
-                    parse_mode="HTML",
-                )
+                await query.edit_message_text(
+                    text=(msg.text or "") + status_line, parse_mode="HTML")
+        except Exception:
+            pass
 
-            # Публикуем в ВКонтакте
-            logger.info(f"VK: token={bool(Config.VK_TOKEN)}, group_id={Config.VK_GROUP_ID}")
-            if Config.VK_TOKEN and Config.VK_GROUP_ID:
-                try:
-                    vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
-                    vk_result = vk.publish(
-                        post_text,
-                        photo_url=photo_url or None,
-                        photo_bytes=tg_photo_content,
-                    )
-                    logger.info(f"VK: результат публикации={vk_result}")
-                except Exception as vk_err:
-                    logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
+    elif data.startswith("schedule_"):
+        import base64
+        from datetime import datetime, timezone
+        slot = _next_schedule_slot()
+        entry = {
+            "tour_id":       tour_id,
+            "text":          post_text,
+            "photo_url":     photo_url,
+            "photo_b64":     base64.b64encode(photo_bytes).decode() if photo_bytes else "",
+            "scheduled_for": slot.isoformat(),
+        }
+        if scheduled_posts is not None:
+            scheduled_posts.append(entry)
+            if save_scheduled:
+                save_scheduled(scheduled_posts)
 
-            # Публикуем в MAX
-            logger.info(f"MAX: token={bool(Config.MAX_TOKEN)}, chat_id={Config.MAX_CHAT_ID}")
-            if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
-                try:
-                    max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
-                    result = max_pub.publish(post_text, photo_url or None)
-                    logger.info(f"MAX: результат публикации={result}")
-                except Exception as max_err:
-                    logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")
+        pending_posts.pop(tour_id, None)
+        if save_pending:
+            save_pending(pending_posts)
 
-            # Обновляем статус в Sheets
-            if tour_id.startswith("sheets_"):
-                row_num = int(tour_id.replace("sheets_", ""))
-                sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
-                sheets.mark_tour_status(row_num, "ОПУБЛИКОВАН")
-
-            pending_posts.pop(tour_id, None)
-            if save_pending:
-                save_pending(pending_posts)
-            status_line = "\n\n✅ <b>ОПУБЛИКОВАНО!</b>"
-        except Exception as e:
-            status_line = f"\n\n❌ Ошибка: {e}"
-
+        # Показываем время по МСК
+        from datetime import timedelta
+        msk_slot = slot.astimezone(timezone(timedelta(hours=3)))
+        status_line = f"\n\n⏰ <b>Запланирован на {msk_slot.strftime('%d.%m %H:%M')} МСК</b>"
         try:
             if msg.photo:
                 await query.edit_message_caption(
@@ -422,18 +487,21 @@ async def _handle_approval(update: Update,
             pass
 
 
-def build_application(pending_posts: dict = None, save_pending=None) -> Application:
+def build_application(pending_posts: dict = None, save_pending=None,
+                      scheduled_posts: list = None, save_scheduled=None) -> Application:
     """
     Собирает и настраивает Telegram-бота.
-    Вызывается из main.py при старте.
-    save_pending — функция сохранения PENDING_POSTS в файл (из main.py).
+    scheduled_posts — очередь запланированных постов (list из main.py)
+    save_scheduled  — функция сохранения очереди в файл
     """
     _pending = pending_posts if pending_posts is not None else {}
     _save = save_pending or (lambda d: None)
+    _sched = scheduled_posts if scheduled_posts is not None else []
+    _save_sched = save_scheduled or (lambda d: None)
 
     async def handle_approval_with_store(update: Update,
                                           context: ContextTypes.DEFAULT_TYPE) -> None:
-        await _handle_approval(update, context, _pending, _save)
+        await _handle_approval(update, context, _pending, _save, _sched, _save_sched)
 
     import os
     from telegram.request import HTTPXRequest
@@ -463,6 +531,6 @@ def build_application(pending_posts: dict = None, save_pending=None) -> Applicat
     app.add_handler(CommandHandler("max", send_to_max))
 
     # Обработчик кнопок одобрения (для руководителя)
-    app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject)_"))
+    app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject|schedule)_"))
 
     return app
