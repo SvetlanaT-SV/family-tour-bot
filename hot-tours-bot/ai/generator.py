@@ -145,6 +145,39 @@ def _country_acc(country: str) -> str:
     return COUNTRY_ACCUSATIVE.get(country.strip(), country)
 
 
+# Родительный падеж городов (откуда? — из Уфы, из Москвы)
+CITY_GENITIVE = {
+    "Уфа":            "Уфы",
+    "Москва":         "Москвы",
+    "Санкт-Петербург":"Санкт-Петербурга",
+    "Петербург":      "Петербурга",
+    "Казань":         "Казани",
+    "Екатеринбург":   "Екатеринбурга",
+    "Новосибирск":    "Новосибирска",
+    "Челябинск":      "Челябинска",
+    "Самара":         "Самары",
+    "Пермь":          "Перми",
+    "Нижний Новгород":"Нижнего Новгорода",
+    "Краснодар":      "Краснодара",
+    "Ростов-на-Дону": "Ростова-на-Дону",
+    "Волгоград":      "Волгограда",
+    "Сочи":           "Сочи",
+    "Минеральные Воды":"Минеральных Вод",
+    "Минводы":        "Минеральных Вод",
+    "Тюмень":         "Тюмени",
+    "Оренбург":       "Оренбурга",
+    "Ижевск":         "Ижевска",
+    "Магнитогорск":   "Магнитогорска",
+    "Стерлитамак":    "Стерлитамака",
+    "Нефтекамск":     "Нефтекамска",
+}
+
+
+def _city_gen(city: str) -> str:
+    """Возвращает город в родительном падеже (откуда? — из Уфы)."""
+    return CITY_GENITIVE.get(city.strip(), city)
+
+
 # ── Пулы случайных преимуществ ──────────────────────────────────
 
 _ADV_MEAL_AI = [
@@ -187,12 +220,12 @@ _ADV_STARS_4 = [
     "✅ Солидные {s}⭐ — без сюрпризов",
 ]
 
-_ADV_FROM_UFA = [
-    "✅ Вылет прямо из Уфы — без пересадок",
-    "✅ Рейс из родной Уфы — собрались и поехали",
-    "✅ Из уфимского аэропорта — удобно и быстро",
-    "✅ Уфа → отель без лишних пересадок",
-    "✅ Вылет из Уфы — экономите время и силы",
+_ADV_FROM_CITY = [
+    "✅ Вылет прямо из {city} — без пересадок",
+    "✅ Рейс из {city} — собрались и поехали",
+    "✅ Из аэропорта {city} — удобно и быстро",
+    "✅ {city} → отель без лишних пересадок",
+    "✅ Вылет из {city} — экономите время и силы",
 ]
 
 _ADV_HOT_PRICE = [
@@ -229,10 +262,12 @@ _ADV_BONUS = [
 
 
 def _pick_advantages(meal: str, stars_digit: str, has_children_ok: bool = True,
-                     sea_close: bool = False, count: int = 2) -> list[str]:
+                     sea_close: bool = False, count: int = 2,
+                     city_from: str = "Уфа") -> list[str]:
     """Случайно собирает набор преимуществ без дублей. По умолчанию 2 галочки."""
-    # Все пулы из которых можем брать
-    all_pools = [_ADV_FROM_UFA, _ADV_HOT_PRICE]
+    city_gen = _city_gen(city_from)
+    from_city_pool = [t.format(city=city_gen) for t in _ADV_FROM_CITY]
+    all_pools = [from_city_pool, _ADV_HOT_PRICE]
 
     meal_upper = meal.upper().strip() if meal else ""
     if meal_upper in ("UAI", "ULTRA ALL INCLUSIVE"):
@@ -265,13 +300,17 @@ def _pick_advantages(meal: str, stars_digit: str, has_children_ok: bool = True,
 
 
 def _random_headline(country: str, hotel: str, nights: str,
-                     price_str: str, meal_ru: str, stars_str: str) -> str:
+                     price_str: str, meal_ru: str, stars_str: str,
+                     city_from: str = "Уфа") -> str:
     """
     Случайный цепляющий заголовок для поста.
     country   — страна в именительном падеже ("Турция")
     nights    — уже склонённая строка ("7 ночей" / "3 ночи")
+    city_from — город вылета ("Уфа", "Казань", ...)
     """
     country_acc = _country_acc(country)
+    city_nom    = city_from
+    city_gen    = _city_gen(city_from)
     templates = [
         # ── Горячие / срочные ──
         f"🔥 Горящий тур в {country_acc} — мест почти нет!",
@@ -310,13 +349,13 @@ def _random_headline(country: str, hotel: str, nights: str,
         # ── Вопросы / обращение ──
         f"🤔 Куда в отпуск? Вот ответ — {country}",
         f"✈️ Улетаем в {country_acc}? Осталось несколько мест!",
-        f"🏖 Надоела Уфа? Вот она — {country}",
+        f"🏖 Надоели серые будни? Вот она — {country}",
         f"🌞 Соскучились по солнцу? {country} через пару дней",
 
-        # ── Локальные / из Уфы ──
-        f"✈️ Из Уфы в {country_acc} — прямой вылет, {nights}",
-        f"🛫 Прямо из Уфы — {country}, {price_str}/чел",
-        f"🏡 Без пересадок из Уфы — {country} на {nights}",
+        # ── Локальные / из города вылета ──
+        f"✈️ Из {city_gen} в {country_acc} — прямой вылет, {nights}",
+        f"🛫 Прямо из {city_gen} — {country}, {price_str}/чел",
+        f"🏡 Без пересадок из {city_gen} — {country} на {nights}",
 
         # ── Про отель ──
         f"🏨 {hotel} {stars_str} — и это цена?!",
@@ -415,7 +454,7 @@ def generate_post(tour: Tour, api_key: str) -> str:
     post = POST_TEMPLATE.format(
         country          = tour.country,
         date_from        = tour.date_from,
-        city_from        = tour.city_from,
+        city_from        = _city_gen(tour.city_from) if tour.city_from else "Уфы",
         nights           = tour.nights,
         nights_word      = _nights_word(tour.nights),
         hotel_name       = tour.hotel_name,
@@ -441,15 +480,17 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 
     Если api_key не задан — генерирует по шаблону без ИИ.
     """
-    country  = str(data.get("Страна", "") or "")
-    resort   = str(data.get("Курорт", "") or "")
-    hotel    = str(data.get("Отель", "") or "")
-    stars    = ""  # столбец Звёзды удалён из таблицы
-    meal     = str(data.get("Питание", "") or "")
-    date     = str(data.get("Дата вылета", "") or "")
-    nights   = str(data.get("Ночей", "") or "")
-    price    = str(data.get("Цена/чел", "") or "")
-    link     = str(data.get("Ссылка", "") or "")
+    country   = str(data.get("Страна", "") or "")
+    resort    = str(data.get("Курорт", "") or "")
+    hotel     = str(data.get("Отель", "") or "")
+    stars     = ""  # столбец Звёзды удалён из таблицы
+    meal      = str(data.get("Питание", "") or "")
+    date      = str(data.get("Дата вылета", "") or "")
+    nights    = str(data.get("Ночей", "") or "")
+    price     = str(data.get("Цена/чел", "") or "")
+    link      = str(data.get("Ссылка", "") or "")
+    city_from = (str(data.get("Город вылета", "") or "").strip() or "Уфа")
+    city_gen  = _city_gen(city_from)
 
     stars_str  = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
     meal_ru    = _meal_ru(meal)
@@ -458,7 +499,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     price_clean = re.sub(r"[^\d.]", "", price)
     price_str   = f"{int(float(price_clean)):,}".replace(",", " ") + " ₽" if price_clean else "уточняйте"
     link_line  = f"\n🔗 Подробнее: {link}" if link else ""
-    headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str)
+    headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str, city_from=city_from)
 
     if api_key:
       try:
@@ -473,9 +514,10 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 - Отель: {hotel} {stars_str}
 - Питание: {meal_ru}
 - Вылет: {date}, {nights_str}
+- Город вылета: {city_from} (в родительном падеже — из {city_gen})
 - Цена: от {price_str}/чел
 
-ВАЖНО: используй правильные падежи. После «в» пиши винительный падеж ({country_acc}), после «из» — родительный, после «о/об» — предложный. Не пиши «тур в {country}» — правильно «тур в {country_acc}».
+ВАЖНО: используй правильные падежи. После «в» пиши винительный падеж ({country_acc}), после «из» — родительный (из {city_gen}), после «о/об» — предложный. Не пиши «тур в {country}» — правильно «тур в {country_acc}». Не пиши «из {city_from}» — правильно «из {city_gen}».
 
 Структура поста (строго):
 1. Первая строка — ОРИГИНАЛЬНЫЙ цепляющий заголовок в тегах <b>...</b>, с эмодзи в начале. Он должен быть:
@@ -544,12 +586,12 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     else:
         description = random.choice(desc_default_pool)
 
-    advantages = _pick_advantages(meal=meal, stars_digit=stars)
+    advantages = _pick_advantages(meal=meal, stars_digit=stars, city_from=city_from)
     advantages_str = "\n".join(advantages)
 
     return f"""<b>{headline}</b>
 
-✈️ Вылет: {date} из Уфы ({nights_str})
+✈️ Вылет: {date} из {city_gen} ({nights_str})
 🏨 <b>{hotel}</b> {stars_str}
 🍽 Питание: {meal_ru}
 💰 Цена: от <b>{price_str}/чел</b>
@@ -586,12 +628,13 @@ def generate_post_without_ai(tour: Tour) -> str:
         meal=tour.meal,
         stars_digit=str(tour.hotel_stars) if tour.hotel_stars else "",
         sea_close=bool(tour.distance_sea and tour.distance_sea <= 100),
+        city_from=tour.city_from or "Уфа",
     )
 
     return POST_TEMPLATE.format(
         country          = tour.country,
         date_from        = tour.date_from,
-        city_from        = tour.city_from,
+        city_from        = _city_gen(tour.city_from) if tour.city_from else "Уфы",
         nights           = tour.nights,
         nights_word      = _nights_word(tour.nights),
         hotel_name       = tour.hotel_name,
