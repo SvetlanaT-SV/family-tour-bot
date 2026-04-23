@@ -221,11 +221,11 @@ _ADV_STARS_4 = [
 ]
 
 _ADV_FROM_CITY = [
-    "✅ Вылет прямо из {city} — без пересадок",
-    "✅ Рейс из {city} — собрались и поехали",
-    "✅ Из аэропорта {city} — удобно и быстро",
-    "✅ {city} → отель без лишних пересадок",
-    "✅ Вылет из {city} — экономите время и силы",
+    "✅ Вылет прямо из {city_gen} — без пересадок",
+    "✅ Рейс из {city_gen} — собрались и поехали",
+    "✅ Из аэропорта {city_gen} — удобно и быстро",
+    "✅ {city_nom} → отель без лишних пересадок",
+    "✅ Вылет из {city_gen} — экономите время и силы",
 ]
 
 _ADV_HOT_PRICE = [
@@ -265,8 +265,9 @@ def _pick_advantages(meal: str, stars_digit: str, has_children_ok: bool = True,
                      sea_close: bool = False, count: int = 2,
                      city_from: str = "Уфа") -> list[str]:
     """Случайно собирает набор преимуществ без дублей. По умолчанию 2 галочки."""
+    city_nom = city_from
     city_gen = _city_gen(city_from)
-    from_city_pool = [t.format(city=city_gen) for t in _ADV_FROM_CITY]
+    from_city_pool = [t.format(city_nom=city_nom, city_gen=city_gen) for t in _ADV_FROM_CITY]
     all_pools = [from_city_pool, _ADV_HOT_PRICE]
 
     meal_upper = meal.upper().strip() if meal else ""
@@ -322,15 +323,15 @@ def _random_headline(country: str, hotel: str, nights: str,
         # ── FOMO / страх упустить ──
         f"😱 Такую цену в {country_acc} вы ещё не видели!",
         f"💔 Упустите — пожалеете: {country}, {price_str}/чел",
-        f"👀 Пока вы думаете — кто-то бронирует {country}",
-        f"🎯 Не для всех: горящая цена на {country}",
+        f"👀 Пока вы думаете — кто-то бронирует {country_acc}",
+        f"🎯 Не для всех: горящая цена на {country_acc}",
 
         # ── Мечта / эмоции ──
-        f"🤩 Мечтали о {country}? Вот ваш шанс!",
+        f"🤩 Мечтали отдохнуть? Вот ваш шанс — {country}!",
         f"💫 {country} зовёт — и не отпустит",
         f"🌊 Море, солнце, {meal_ru} — {country} ждёт!",
         f"🌴 {country} — там, где вы забудете про будни",
-        f"✨ Чемодан, паспорт, улыбка — и {country} ваша",
+        f"✨ Чемодан, паспорт, улыбка — и вы в {country_acc}",
         f"🌺 {country}: когда отдых превращается в сказку",
 
         # ── Инсайдерские / эксклюзив ──
@@ -349,7 +350,7 @@ def _random_headline(country: str, hotel: str, nights: str,
         # ── Вопросы / обращение ──
         f"🤔 Куда в отпуск? Вот ответ — {country}",
         f"✈️ Улетаем в {country_acc}? Осталось несколько мест!",
-        f"🏖 Надоели серые будни? Вот она — {country}",
+        f"🏖 Надоели серые будни? Летим в {country_acc}",
         f"🌞 Соскучились по солнцу? {country} через пару дней",
 
         # ── Локальные / из города вылета ──
@@ -371,7 +372,7 @@ def _random_headline(country: str, hotel: str, nights: str,
         # ── Интригующие / нестандартные ──
         f"😮 Три цифры цены — и вы в {country_acc}",
         f"🎉 Есть повод: {country} от {price_str}/чел",
-        f"🌟 Пока все смотрят — мы нашли {country}",
+        f"🌟 Пока все смотрят — мы нашли {country_acc}",
         f"👇 Смотрите внимательно: {country}, {nights}",
         f"🍀 Повезло тем, кто первый: {country}",
 
