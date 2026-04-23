@@ -482,7 +482,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     Если api_key не задан — генерирует по шаблону без ИИ.
     """
     country   = str(data.get("Страна", "") or "")
-    resort    = str(data.get("Курорт", "") or "")
+    resort    = str(data.get("Курорт", "") or "").strip() or country
     hotel     = str(data.get("Отель", "") or "")
     stars     = ""  # столбец Звёзды удалён из таблицы
     meal      = str(data.get("Питание", "") or "")
@@ -492,6 +492,12 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     link      = str(data.get("Ссылка", "") or "")
     city_from = (str(data.get("Город вылета", "") or "").strip() or "Уфа")
     city_gen  = _city_gen(city_from)
+    import logging as _lg
+    _lg.getLogger(__name__).info(
+        f"Генерация поста: страна={country!r}, курорт={data.get('Курорт')!r}, "
+        f"город_вылета={city_from!r} (из колонки {data.get('Город вылета')!r}), "
+        f"все ключи строки: {list(data.keys())}"
+    )
 
     stars_str  = f"{'⭐' * int(stars)}" if stars.isdigit() else stars
     meal_ru    = _meal_ru(meal)
