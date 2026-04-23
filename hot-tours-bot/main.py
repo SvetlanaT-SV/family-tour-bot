@@ -247,6 +247,18 @@ async def search_tourvisor_tours(context: ContextTypes.DEFAULT_TYPE = None):
                 except Exception:
                     pass
 
+            if photo_content and tour.country:
+                try:
+                    from image_overlay import add_tour_overlay
+                    photo_content = add_tour_overlay(
+                        photo_content,
+                        country=tour.country,
+                        price=tour.formatted_price_per_person,
+                        departure=f"{tour.date_from} · из {tour.city_from}" if tour.date_from else "",
+                    )
+                except Exception as oe:
+                    logger.warning(f"Overlay для превью не применён: {oe}")
+
             for admin_id in Config.TELEGRAM_ADMIN_IDS:
                 try:
                     if photo_content:
@@ -335,7 +347,7 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     [InlineKeyboardButton("❌ Пропустить", callback_data=f"reject_{tour_id}")],
                 ])
 
-                # Скачиваем фото один раз, отправляем всем админам
+                # Скачиваем фото один раз, накладываем текст, отправляем всем админам
                 photo_content = None
                 if photo_url:
                     try:
@@ -346,6 +358,19 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                             photo_content = resp.content
                     except Exception as photo_err:
                         logger.warning(f"  Фото не загрузилось: {photo_err}")
+
+                # Накладываем текст на превью — чтобы админ видел финальный вид
+                if photo_content and ov_country:
+                    try:
+                        from image_overlay import add_tour_overlay
+                        photo_content = add_tour_overlay(
+                            photo_content,
+                            country=ov_country,
+                            price=ov_price,
+                            departure=ov_departure,
+                        )
+                    except Exception as oe:
+                        logger.warning(f"  Overlay для превью не применён: {oe}")
 
                 for admin_id in Config.TELEGRAM_ADMIN_IDS:
                     try:
