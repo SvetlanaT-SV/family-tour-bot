@@ -27,6 +27,7 @@ POST_TEMPLATE = """<b>🔥 ГОРЯЩИЙ ТУР! {country}</b>
 {ai_advantages}
 
 📩 Написать нам: <b>@hottourpegas_bot</b>
+📞 Позвонить: <b>+7 (917) 044-21-00</b>
 ⚡ Количество мест ограничено!
 
 #горящийтур #{country_tag}"""
@@ -505,7 +506,9 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 2. Блок деталей: ✈️ вылет, 🏨 <b>название отеля</b>, 🍽 питание по-русски, 💰 <b>цена</b>
 3. 1-2 атмосферных предложения об отдыхе
 4. 3-4 преимущества с ✅
-5. Строка: 📩 Написать нам: <b>@hottourpegas_bot</b>
+5. Две строки подряд (ОБЯЗАТЕЛЬНО обе):
+   📩 Написать нам: <b>@hottourpegas_bot</b>
+   📞 Позвонить: <b>+7 (917) 044-21-00</b>
 6. ⚡ Количество мест ограничено!
 7. Хэштеги: #горящийтур #{_country_tag(country)}
 
@@ -565,6 +568,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 {advantages_str}{link_line}
 
 📩 Написать нам: <b>@hottourpegas_bot</b>
+📞 Позвонить: <b>+7 (917) 044-21-00</b>
 ⚡ Количество мест ограничено!
 
 #горящийтур #{_country_tag(country)}"""
