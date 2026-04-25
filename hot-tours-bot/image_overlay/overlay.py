@@ -70,21 +70,7 @@ def add_tour_overlay(image_bytes: bytes, country: str,
             img = img.resize((int(W * scale), int(H * scale)), Image.LANCZOS)
             W, H = img.size
 
-        # ── Градиент снизу: тёмный полупрозрачный ──
-        gradient_h = int(H * 0.45)
-        gradient = Image.new("RGBA", (W, gradient_h), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(gradient)
-        for y in range(gradient_h):
-            # прозрачность растёт от 0 сверху до ~220 снизу
-            alpha = int(220 * (y / gradient_h) ** 1.6)
-            gd.rectangle([(0, y), (W, y + 1)], fill=(0, 0, 0, alpha))
-
-        img = img.convert("RGBA")
-        img.alpha_composite(gradient, dest=(0, H - gradient_h))
-
-        draw = ImageDraw.Draw(img)
-
-        # Шрифты — масштабируются от ширины картинки
+        # ── Шрифты ──
         bold_path = _find_font(FONT_PATHS_BOLD)
         reg_path  = _find_font(FONT_PATHS_REGULAR) or bold_path
         if not bold_path:
@@ -92,11 +78,11 @@ def add_tour_overlay(image_bytes: bytes, country: str,
             return image_bytes
         logger.info(f"Overlay: используется шрифт {bold_path}")
 
-        # Размеры (в пикселях) подбираем от ширины
-        sz_hot    = int(W * 0.045)   # "🔥 ГОРЯЩИЙ ТУР"
-        sz_country = int(W * 0.095)  # страна — самая большая
-        sz_price  = int(W * 0.070)   # цена
-        sz_small  = int(W * 0.035)   # доп. строка
+        # Размеры — пропорция от ширины
+        sz_hot     = int(W * 0.038)   # "ГОРЯЩИЙ ТУР"
+        sz_country = int(W * 0.080)   # страна — самое большое
+        sz_price   = int(W * 0.058)   # цена
+        sz_small   = int(W * 0.030)   # дата / город
 
         try:
             f_hot     = ImageFont.truetype(bold_path, sz_hot)
@@ -108,40 +94,73 @@ def add_tour_overlay(image_bytes: bytes, country: str,
             return image_bytes
 
         padding_x = int(W * 0.05)
-        y = H - gradient_h + int(gradient_h * 0.25)
+        gap_tag    = int(H * 0.018)
+        gap_line   = int(H * 0.012)
 
-        # Шапка — "ГОРЯЩИЙ ТУР" в красной плашке слева
+        # Считаем суммарную высоту блока, чтобы прижать снизу с одинаковым отступом
+        tag_pad   = int(sz_hot * 0.35)
+        tag_h_box = sz_hot + tag_pad * 2
+
+        country_text = (country or "").upper()
+        price_text   = f"от {price}" if price else ""
+        dep_text     = departure or ""
+
+        total_h = tag_h_box
+        if country_text:
+            total_h += gap_tag + sz_country
+        if price_text:
+            total_h += gap_line + sz_price
+        if dep_text:
+            total_h += gap_line + sz_small
+
+        bottom_margin = int(H * 0.06)  # отступ от нижнего края картинки
+        gradient_h    = total_h + int(H * 0.10) + bottom_margin
+        y_start       = H - bottom_margin - total_h
+
+        # ── Градиент снизу ──
+        gradient = Image.new("RGBA", (W, gradient_h), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(gradient)
+        for y in range(gradient_h):
+            alpha = int(220 * (y / gradient_h) ** 1.6)
+            gd.rectangle([(0, y), (W, y + 1)], fill=(0, 0, 0, alpha))
+
+        img = img.convert("RGBA")
+        img.alpha_composite(gradient, dest=(0, max(0, H - gradient_h)))
+
+        draw = ImageDraw.Draw(img)
+
+        # ── Текст ──
+        y = y_start
+
+        # Красная плашка "ГОРЯЩИЙ ТУР"
         tag = "ГОРЯЩИЙ ТУР"
         try:
             tag_bbox = draw.textbbox((0, 0), tag, font=f_hot)
             tag_w = tag_bbox[2] - tag_bbox[0]
-            tag_h = tag_bbox[3] - tag_bbox[1]
         except Exception:
-            tag_w, tag_h = draw.textsize(tag, font=f_hot)
-        pad = int(sz_hot * 0.35)
+            tag_w = int(sz_hot * len(tag) * 0.55)
         draw.rectangle(
-            [(padding_x, y), (padding_x + tag_w + pad * 2, y + tag_h + pad * 2)],
+            [(padding_x, y), (padding_x + tag_w + tag_pad * 2, y + tag_h_box)],
             fill=(220, 50, 50)
         )
-        draw.text((padding_x + pad, y + pad), tag, font=f_hot, fill=(255, 255, 255))
-        y += tag_h + pad * 2 + int(H * 0.02)
+        draw.text((padding_x + tag_pad, y + tag_pad), tag, font=f_hot, fill=(255, 255, 255))
+        y += tag_h_box + gap_tag
 
-        # Страна — белым, крупным
-        country_text = (country or "").upper()
-        draw.text((padding_x, y), country_text, font=f_country, fill=(255, 255, 255),
-                  stroke_width=3, stroke_fill=(0, 0, 0))
-        y += sz_country + int(H * 0.01)
+        # Страна
+        if country_text:
+            draw.text((padding_x, y), country_text, font=f_country, fill=(255, 255, 255),
+                      stroke_width=3, stroke_fill=(0, 0, 0))
+            y += sz_country + gap_line
 
-        # Цена — жёлтым акцентом
-        if price:
-            price_text = f"от {price}"
+        # Цена
+        if price_text:
             draw.text((padding_x, y), price_text, font=f_price, fill=(255, 220, 80),
                       stroke_width=2, stroke_fill=(0, 0, 0))
-            y += sz_price + int(H * 0.005)
+            y += sz_price + gap_line
 
-        # Дата / город вылета — серым мелким
-        if departure:
-            draw.text((padding_x, y), departure, font=f_small, fill=(230, 230, 230),
+        # Дата / город
+        if dep_text:
+            draw.text((padding_x, y), dep_text, font=f_small, fill=(230, 230, 230),
                       stroke_width=1, stroke_fill=(0, 0, 0))
 
         out = io.BytesIO()
