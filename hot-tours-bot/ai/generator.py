@@ -277,7 +277,7 @@ _ADV_BONUS = [
     "✅ Проверенный туроператор Pegas Touristik",
     "✅ Сопровождение от менеджера до возвращения",
     "✅ Все документы подготовим за вас",
-    "✅ Опыт более 12 лет — знаем направления",
+    "✅ Наш опыт более 12 лет — знаем направления",
     "✅ Подберём подходящий вариант под ваш запрос",
 ]
 
@@ -592,13 +592,19 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     if os.getenv("GIGACHAT_AUTH_KEY", "").strip():
         try:
             from ai.gigachat import generate as giga_generate
+            logger.info("Пробую сгенерировать пост через GigaChat...")
             post = giga_generate(ai_prompt, max_tokens=700)
             if post:
+                logger.info(f"GigaChat вернул пост ({len(post)} символов)")
                 if link_line:
                     post += link_line
                 return post
+            else:
+                logger.warning("GigaChat вернул пустой ответ, fallback на шаблон")
         except Exception as e:
-            logger.warning(f"GigaChat недоступен, fallback: {e}")
+            logger.warning(f"GigaChat недоступен, fallback: {e!r}")
+    else:
+        logger.info("GIGACHAT_AUTH_KEY не задан в окружении")
 
     # 2) Пробуем Claude (если ключ задан)
     if api_key:
@@ -654,6 +660,10 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
         description = random.choice(desc_4_pool)
     else:
         description = random.choice(desc_default_pool)
+
+    # Особенности отеля из таблицы — добавляем второй фразой к описанию
+    if features:
+        description = f"{description}\n\n{features}"
 
     advantages = _pick_advantages(meal=meal, stars_digit=stars, city_from=city_from)
     advantages_str = "\n".join(advantages)
