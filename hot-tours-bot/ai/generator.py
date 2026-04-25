@@ -1,16 +1,18 @@
 """
-ai/generator.py — Генератор текста поста через Claude API
+ai/generator.py — Генератор текста поста через ИИ.
 
-Берёт сухие данные тура (отель, цена, питание...)
-и превращает их в живой, привлекательный пост для ВК/Telegram.
-
-Claude Haiku — самая дешёвая модель, стоит ~0.1₽ за пост.
+Приоритет: GigaChat (если задан GIGACHAT_AUTH_KEY) → Claude (если ANTHROPIC_API_KEY)
+→ шаблонный fallback (всегда работает).
 """
 
 import anthropic
+import logging
+import os
 import random
 import re
 from tourvisor.client import Tour
+
+logger = logging.getLogger(__name__)
 
 
 # Шаблон поста — Claude заполняет [ОПИСАНИЕ] и [ПРЕИМУЩЕСТВА]
@@ -532,12 +534,11 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     link_line  = f"\n🔗 Подробнее: {link}" if link else ""
     headline   = _random_headline(country, hotel, nights_str, price_str, meal_ru, stars_str, city_from=city_from)
 
-    if api_key:
-      try:
-        country_to = _country_to(country)   # "в Турцию" / "на Мальдивы"
-        country_in = _country_in(country)   # "в Турции" / "на Мальдивах"
-        client = anthropic.Anthropic(api_key=api_key)
-        prompt = f"""Ты — копирайтер турагентства Pegas Touristik (Уфа). Напиши продающий пост для Telegram с HTML-разметкой.
+    country_to = _country_to(country)   # "в Турцию" / "на Мальдивы"
+    country_in = _country_in(country)   # "в Турции" / "на Мальдивах"
+
+    # Единый промпт для любого ИИ (Claude / GigaChat)
+    ai_prompt = f"""Ты — копирайтер турагентства Pegas Touristik (Уфа, опыт 12+ лет). Напиши продающий пост для Telegram с HTML-разметкой.
 
 Данные тура:
 - Страна: {country}
@@ -551,48 +552,55 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 - Цена: от {price_str}/чел
 
 ⚠️ КРИТИЧНО про падежи:
-— Для направления («летим / едем / тур / отпуск куда?») используй ТОЛЬКО готовую фразу: {country_to}. Например: «летим {country_to}», «тур {country_to}», «отпуск {country_to}».
-— Для местонахождения («отдых / отель / где?») используй: {country_in}. Например: «отдых {country_in}», «отель {country_in}».
-— НЕ пиши «в {country}» или «в {_country_acc(country)}» самостоятельно — используй готовые фразы выше.
-— «Из» всегда с родительным падежом: из {city_gen} (НЕ «из {city_from}»).
+— «Куда?» — ТОЛЬКО готовая фраза: {country_to}. Пример: «летим {country_to}», «тур {country_to}».
+— «Где?» — ТОЛЬКО готовая фраза: {country_in}. Пример: «отдых {country_in}», «отель {country_in}».
+— НЕ пиши «в {country}» — используй готовые фразы выше.
+— «Из» всегда с родительным: из {city_gen} (НЕ «из {city_from}»).
 
-Структура поста (строго):
-1. Первая строка — ОРИГИНАЛЬНЫЙ цепляющий заголовок в тегах <b>...</b>, с эмодзи в начале. Он должен быть:
-   • уникальным (каждый раз новым — проявите креативность)
-   • вызывать эмоцию: интригу, мечту, срочность, FOMO, любопытство
-   • не шаблонным — избегайте «🔥 ГОРЯЩИЙ ТУР!», «Горячее предложение», «Успейте забронировать»
-   • обращаться на «вы», не на «ты»
-   Примеры разных стилей (для вдохновения, не копировать):
-   — Интрига: «🤫 Нашли для вас кое-что интересное...»
-   — FOMO:    «😱 Пока вы читаете — кто-то уже бронирует»
-   — Мечта:   «🌊 Море, солнце, {meal_ru} — и это {country} ждёт»
-   — Вопрос:  «🤔 Куда в отпуск? Вот ответ»
-   — Эмоция:  «💫 {country} зовёт — и не отпустит»
-   — Локал:   «✈️ Из Уфы прямо {country_to}»
-   — Цифры:   «💸 {price_str}/чел — и вы {country_in}»
-   — Отель:   «😍 {hotel} — и это цена?!»
-2. Блок деталей: ✈️ вылет, 🏨 <b>название отеля</b>, 🍽 питание по-русски, 💰 <b>цена</b>
-3. 1-2 атмосферных предложения об отдыхе
-4. 3-4 преимущества с ✅
-5. Две строки подряд (ОБЯЗАТЕЛЬНО обе):
+Структура поста (строго, в таком порядке):
+1. Первая строка — ОРИГИНАЛЬНЫЙ цепляющий заголовок в <b>...</b> с эмодзи. Без штампов «🔥 ГОРЯЩИЙ ТУР», «Горячее предложение». Обращение на «вы», не «ты».
+2. Блок деталей строкой за строкой:
+   ✈️ Вылет: {date} из {city_gen} ({nights_str})
+   🏨 <b>{hotel}</b> {stars_str}
+   🍽 Питание: {meal_ru}
+   💰 Цена: от <b>{price_str}/чел</b>
+3. 2-3 живых предложения про отель и отдых. Никаких бессмысленных оборотов вроде «главное впереди на пляже».
+4. Ровно 2 преимущества с ✅, разные между постами (не банальные).
+5. Две строки подряд:
    📩 Написать нам: <b>@hottourpegas_bot</b>
    📞 Позвонить: <b>+7 (917) 044-21-00</b>
 6. ⚡ Количество мест ограничено!
 7. Хэштеги: #горящийтур #{_country_tag(country)}
 
-Стиль: живой, дружелюбный, как советует подруга. Без воды. Используй только HTML-теги <b> для жирного."""
+Стиль: живой, дружелюбный, как от знакомого. Без воды. HTML только <b>. Проверь грамматику и склонение."""
 
+    # 1) Пробуем GigaChat (если ключ задан)
+    if os.getenv("GIGACHAT_AUTH_KEY", "").strip():
+        try:
+            from ai.gigachat import generate as giga_generate
+            post = giga_generate(ai_prompt, max_tokens=700)
+            if post:
+                if link_line:
+                    post += link_line
+                return post
+        except Exception as e:
+            logger.warning(f"GigaChat недоступен, fallback: {e}")
+
+    # 2) Пробуем Claude (если ключ задан)
+    if api_key:
+      try:
+        client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": ai_prompt}],
         )
         post = msg.content[0].text.strip()
         if link_line:
             post += link_line
         return post
-      except Exception:
-        pass  # Если API недоступен — используем шаблон
+      except Exception as e:
+        logger.warning(f"Claude недоступен, fallback на шаблон: {e}")
 
     # Шаблонный вариант без ИИ — случайные описания (2-3 фразы)
     country_acc = _country_acc(country)
