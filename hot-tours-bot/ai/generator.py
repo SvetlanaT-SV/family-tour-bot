@@ -535,6 +535,37 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     country_to = _country_to(country)   # "в Турцию" / "на Мальдивы"
     country_in = _country_in(country)   # "в Турции" / "на Мальдивах"
 
+    # Пытаемся найти реальные данные об отеле через Tourvisor
+    real_hotel_block = ""
+    try:
+        if country and hotel and os.getenv("TOURVISOR_LOGIN"):
+            from tourvisor.client import TourvisorClient
+            from config import Config as _Cfg
+            tv = TourvisorClient(_Cfg.TOURVISOR_LOGIN, _Cfg.TOURVISOR_PASSWORD)
+            country_id = tv.find_country_id(country)
+            if country_id:
+                hotel_id = tv.find_hotel_id(country_id, hotel)
+                if hotel_id:
+                    details = tv.get_hotel_details(hotel_id)
+                    desc = (details.get("hoteldescription") or "").strip()
+                    facilities = (details.get("hotelfacilities") or "").strip()
+                    if desc or facilities:
+                        # Ограничим объём, чтобы промпт не раздулся
+                        if len(desc) > 1500:
+                            desc = desc[:1500] + "…"
+                        if len(facilities) > 600:
+                            facilities = facilities[:600] + "…"
+                        real_hotel_block = (
+                            "\n\nРЕАЛЬНЫЕ ДАННЫЕ ОБ ОТЕЛЕ (от Tourvisor — это правда, можно использовать):\n"
+                            f"Описание: {desc}\n"
+                            f"Удобства: {facilities}\n"
+                        )
+                        logger.info(f"Tourvisor: подтянуто описание отеля '{hotel}' (id={hotel_id})")
+                else:
+                    logger.info(f"Tourvisor: отель '{hotel}' не найден в {country}")
+    except Exception as e:
+        logger.warning(f"Tourvisor: не удалось получить описание отеля: {e}")
+
     # Единый промпт для любого ИИ (Claude / GigaChat)
     ai_prompt = f"""Ты — копирайтер турагентства Pegas Touristik (Уфа, опыт 12+ лет). Напиши продающий пост для Telegram с HTML-разметкой.
 
@@ -550,10 +581,10 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 - Цена: от {price_str}/чел
 
 ⚠️ КРИТИЧНО про факты:
-— ТОЛЬКО факты из «Данные тура» выше. НЕ выдумывай детали отеля, которых там нет.
-— ЗАПРЕЩЕНО упоминать: SPA, аквапарк, бассейны для детей, детская анимация, шведский стол, рестораны à la carte, фитнес, теннис, кальянная, бар у бассейна, верховая езда, дайвинг, любые конкретные удобства/услуги. Этого может не быть в этом отеле.
-— Можно говорить общо: «комфортный отдых», «приятная атмосфера», «хорошее место для отпуска», «премиум-класс» (если 5⭐), «проверенный отель» (если 4⭐).
-— Категория звёзд из «Отель» — её можно использовать. Питание из поля выше — можно.
+— ТОЛЬКО факты из «Данные тура» выше {("и из «РЕАЛЬНЫЕ ДАННЫЕ ОБ ОТЕЛЕ» ниже" if real_hotel_block else "")}.
+— Если есть РЕАЛЬНЫЕ ДАННЫЕ ОБ ОТЕЛЕ — можно упоминать оттуда удобства, рейтинг, расположение. Это правда.
+— Если реальных данных нет — НЕ упоминай конкретных удобств (SPA, аквапарк, анимация, бассейны для детей, шведский стол, à la carte, фитнес и т.п.). Говори общо.
+— Категория звёзд из «Отель» — её можно использовать. Питание из поля выше — можно.{real_hotel_block}
 
 ⚠️ КРИТИЧНО про падежи:
 — «Куда?» — ТОЛЬКО готовая фраза: {country_to}. Пример: «летим {country_to}», «тур {country_to}».

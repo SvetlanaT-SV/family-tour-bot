@@ -12,6 +12,7 @@ Tourvisor — агрегатор туров для агентств. Через 
 """
 
 import logging
+import re
 import time
 import requests
 from datetime import datetime, timedelta
@@ -178,6 +179,61 @@ class TourvisorClient:
             if city_name_lower in city.get("name", "").lower():
                 return city.get("id")
         return None
+
+    def find_country_id(self, country_name: str) -> Optional[int]:
+        """Ищет ID страны по её названию."""
+        countries = self.get_countries()
+        name_lower = country_name.lower().strip()
+        for c in countries:
+            if name_lower == c.get("name", "").lower():
+                return c.get("id")
+        # Если точно не нашли — пытаемся по подстроке
+        for c in countries:
+            if name_lower in c.get("name", "").lower():
+                return c.get("id")
+        return None
+
+    def list_hotels(self, country_id: int) -> list[dict]:
+        """Возвращает список отелей в стране (для поиска по имени)."""
+        data = self._get("list.php", {"type": "hotel", "hotcountry": country_id})
+        return data.get("lists", {}).get("hotels", {}).get("hotel", [])
+
+    def find_hotel_id(self, country_id: int, hotel_name: str) -> Optional[int]:
+        """
+        Ищет ID отеля в стране по неточному совпадению имени.
+        Сравнение: убираем звёзды, кавычки, дефисы; сверяем по подстрокам.
+        """
+        if not hotel_name:
+            return None
+        norm = lambda s: re.sub(r"[^a-zа-я0-9]+", "", (s or "").lower())
+        target = norm(hotel_name)
+        if not target:
+            return None
+
+        try:
+            hotels = self.list_hotels(country_id)
+        except Exception as e:
+            logger.warning(f"Tourvisor: list_hotels failed: {e}")
+            return None
+
+        # Точное совпадение нормализованных имён
+        for h in hotels:
+            if norm(h.get("name", "")) == target:
+                return h.get("id")
+        # Префиксное / содержит
+        for h in hotels:
+            n = norm(h.get("name", ""))
+            if n and (n.startswith(target) or target.startswith(n) or target in n or n in target):
+                return h.get("id")
+        return None
+
+    def get_hotel_details(self, hotel_id: int) -> dict:
+        """
+        Возвращает подробное описание отеля по hotelcode.
+        Поля: hotelname, hoteldescription, hotelrating, hotelfacilities, photos, etc.
+        """
+        data = self._get("hotel.php", {"hotelcode": hotel_id, "removetags": 1, "imgsmall": 1})
+        return data.get("hotel", data)
 
     # ── Поиск туров ───────────────────────────────────────────
 
