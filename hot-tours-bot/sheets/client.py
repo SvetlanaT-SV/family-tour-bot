@@ -28,9 +28,26 @@ SCOPES = [
 ]
 
 # Названия листов таблицы
-SHEET_LEADS   = "Заявки"              # сюда пишем новые заявки от клиентов
-SHEET_CLIENTS = "Клиенты"             # обновлённые данные клиентов
-SHEET_TOURS   = "Туры к публикации"   # менеджер вносит туры, бот публикует
+SHEET_LEADS     = "Заявки"              # сюда пишем новые заявки от клиентов
+SHEET_CLIENTS   = "Клиенты"             # обновлённые данные клиентов
+SHEET_TOURS     = "Туры к публикации"   # менеджер вносит туры, бот публикует
+SHEET_SCHEDULED = "Расписание"          # запланированные посты, переживают перезапуск Railway
+
+SCHEDULED_HEADERS = [
+    "Когда",        # ISO-дата UTC, например 2026-04-26T19:00:00+00:00
+    "Когда МСК",    # человекочитаемо: 26.04 19:00 МСК
+    "tour_id",      # из PENDING_POSTS — sheets_5 / tv_xxx
+    "Статус",       # ОЖИДАЕТ / ОПУБЛИКОВАН / ОТМЕНЁН
+    "Страна",
+    "Цена",
+    "Дата вылета",
+    "Текст",        # HTML-текст поста
+    "Photo URL",    # URL картинки (если есть)
+    "Photo bytes",  # base64 фото (если photo_url пустой)
+    "Overlay страна",
+    "Overlay цена",
+    "Overlay вылет",
+]
 
 # Заголовки листа "Туры к публикации"
 TOURS_HEADERS = [
@@ -246,6 +263,83 @@ class SheetsClient:
     def mark_tour_publishing(self, row_number: int) -> None:
         """Ставит статус 'ПУБЛИКУЕТСЯ' — защита от двойной публикации"""
         self.mark_tour_status(row_number, "ПУБЛИКУЕТСЯ")
+
+    # ── Лист "Расписание" — запланированные посты ───────────────
+
+    def _get_scheduled_ws(self):
+        """Возвращает worksheet расписания, создаёт лист если его нет."""
+        ss = self._get_spreadsheet()
+        if not ss:
+            return None
+        try:
+            return ss.worksheet(SHEET_SCHEDULED)
+        except Exception:
+            try:
+                ws = ss.add_worksheet(title=SHEET_SCHEDULED, rows=200, cols=len(SCHEDULED_HEADERS))
+                ws.append_row(SCHEDULED_HEADERS)
+                return ws
+            except Exception as e:
+                print(f"❌ Sheets: не удалось создать лист '{SHEET_SCHEDULED}': {e}")
+                return None
+
+    def add_scheduled_post(self, entry: dict) -> bool:
+        """Добавляет запись в лист 'Расписание'."""
+        ws = self._get_scheduled_ws()
+        if not ws:
+            return False
+        try:
+            row = [
+                entry.get("scheduled_for", ""),
+                entry.get("scheduled_for_msk", ""),
+                entry.get("tour_id", ""),
+                "ОЖИДАЕТ",
+                entry.get("country", ""),
+                entry.get("price", ""),
+                entry.get("date", ""),
+                entry.get("text", ""),
+                entry.get("photo_url", ""),
+                entry.get("photo_b64", ""),
+                entry.get("overlay_country", ""),
+                entry.get("overlay_price", ""),
+                entry.get("overlay_departure", ""),
+            ]
+            ws.append_row(row, value_input_option="RAW")
+            return True
+        except Exception as e:
+            print(f"❌ Sheets: не удалось добавить в расписание: {e}")
+            return False
+
+    def get_pending_scheduled(self) -> list[dict]:
+        """Возвращает все записи со статусом ОЖИДАЕТ. К каждой добавляет _row_number."""
+        ws = self._get_scheduled_ws()
+        if not ws:
+            return []
+        try:
+            rows = ws.get_all_records()
+            result = []
+            for i, r in enumerate(rows, start=2):
+                if str(r.get("Статус", "")).strip().upper() == "ОЖИДАЕТ":
+                    r["_row_number"] = i
+                    result.append(r)
+            return result
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения расписания: {e}")
+            return []
+
+    def mark_scheduled_status(self, row_number: int, status: str) -> None:
+        """Меняет статус строки расписания (ОПУБЛИКОВАН/ОТМЕНЁН)."""
+        ws = self._get_scheduled_ws()
+        if not ws:
+            return
+        try:
+            headers = ws.row_values(1)
+            try:
+                col = headers.index("Статус") + 1
+            except ValueError:
+                col = 4  # дефолт
+            ws.update_cell(row_number, col, status)
+        except Exception as e:
+            print(f"❌ Sheets: ошибка обновления статуса расписания: {e}")
 
     def get_all_leads(self) -> list[dict]:
         """

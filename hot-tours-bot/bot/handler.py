@@ -462,18 +462,34 @@ async def _handle_approval(update: Update,
 
     elif data.startswith("schedule_"):
         import base64
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
         slot = _next_schedule_slot()
+        msk_slot = slot.astimezone(timezone(timedelta(hours=3)))
+
         entry = {
             "tour_id":            tour_id,
             "text":               post_text,
-            "photo_url":          photo_url,
+            "photo_url":          photo_url or "",
             "photo_b64":          base64.b64encode(photo_bytes).decode() if photo_bytes else "",
             "overlay_country":    ov_country,
             "overlay_price":      ov_price,
             "overlay_departure":  ov_departure,
             "scheduled_for":      slot.isoformat(),
+            "scheduled_for_msk":  msk_slot.strftime('%d.%m %H:%M МСК'),
+            "country":            ov_country,
+            "price":              ov_price,
+            "date":               ov_departure,
         }
+
+        # Сохраняем в Google Sheets — переживёт перезапуск Railway
+        try:
+            sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+            sheets.add_scheduled_post(entry)
+            logger.info(f"Расписание: добавлен пост tour_id={tour_id} на {msk_slot.strftime('%d.%m %H:%M МСК')}")
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить расписание в Sheets: {e}")
+
+        # Дублируем в локальную очередь — для совместимости и быстрого доступа
         if scheduled_posts is not None:
             scheduled_posts.append(entry)
             if save_scheduled:
@@ -483,9 +499,6 @@ async def _handle_approval(update: Update,
         if save_pending:
             save_pending(pending_posts)
 
-        # Показываем время по МСК
-        from datetime import timedelta
-        msk_slot = slot.astimezone(timezone(timedelta(hours=3)))
         status_line = f"\n\n⏰ <b>Запланирован на {msk_slot.strftime('%d.%m %H:%M')} МСК</b>"
         try:
             if msg.photo:

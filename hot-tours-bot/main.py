@@ -101,22 +101,74 @@ SCHEDULED_POSTS: list = _load_scheduled()
 
 
 async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE = None):
-    """Каждую минуту публикует запланированные посты, у которых пришло время."""
-    if not SCHEDULED_POSTS:
-        return
-
+    """
+    Каждую минуту публикует запланированные посты у которых пришло время.
+    Источник истины — лист 'Расписание' в Google Sheets (переживает перезапуски).
+    Локальный SCHEDULED_POSTS — дублирующий кэш на случай недоступности Sheets.
+    """
     from datetime import datetime, timezone
     import base64
     from bot.handler import publish_to_channels
 
     now = datetime.now(timezone.utc)
-    due = [p for p in SCHEDULED_POSTS if datetime.fromisoformat(p["scheduled_for"]) <= now]
-    if not due:
+    sheets = None
+    pending_in_sheets = []
+
+    # Читаем из Google Sheets
+    if Config.GOOGLE_CREDENTIALS_FILE and Config.GOOGLE_SHEET_ID:
+        try:
+            sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+            pending_in_sheets = sheets.get_pending_scheduled()
+        except Exception as e:
+            logger.warning(f"Расписание: не смог прочитать из Sheets: {e}")
+
+    # Сводим: из Sheets (приоритет) + локальная очередь
+    due_entries = []
+    seen_tour_ids = set()
+
+    for r in pending_in_sheets:
+        try:
+            slot_dt = datetime.fromisoformat(r.get("Когда", ""))
+            if slot_dt <= now:
+                due_entries.append({
+                    "source":             "sheets",
+                    "row_number":         r.get("_row_number"),
+                    "tour_id":            r.get("tour_id", ""),
+                    "text":               r.get("Текст", ""),
+                    "photo_url":          r.get("Photo URL", ""),
+                    "photo_b64":          r.get("Photo bytes", ""),
+                    "overlay_country":    r.get("Overlay страна", ""),
+                    "overlay_price":      r.get("Overlay цена", ""),
+                    "overlay_departure":  r.get("Overlay вылет", ""),
+                })
+                seen_tour_ids.add(r.get("tour_id", ""))
+        except Exception:
+            continue
+
+    for p in SCHEDULED_POSTS:
+        try:
+            slot_dt = datetime.fromisoformat(p["scheduled_for"])
+            if slot_dt <= now and p.get("tour_id") not in seen_tour_ids:
+                due_entries.append({
+                    "source":             "local",
+                    "tour_id":            p.get("tour_id", ""),
+                    "text":               p.get("text", ""),
+                    "photo_url":          p.get("photo_url", ""),
+                    "photo_b64":          p.get("photo_b64", ""),
+                    "overlay_country":    p.get("overlay_country", ""),
+                    "overlay_price":      p.get("overlay_price", ""),
+                    "overlay_departure":  p.get("overlay_departure", ""),
+                    "_local_entry":       p,
+                })
+        except Exception:
+            continue
+
+    if not due_entries:
         return
 
-    logger.info(f"⏰ Время публикации: {len(due)} пост(ов)")
+    logger.info(f"⏰ Время публикации: {len(due_entries)} пост(ов)")
 
-    for entry in due:
+    for entry in due_entries:
         try:
             photo_bytes = base64.b64decode(entry["photo_b64"]) if entry.get("photo_b64") else None
             ok, _ = await publish_to_channels(
@@ -129,12 +181,20 @@ async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE = None):
                 overlay_price=entry.get("overlay_price", ""),
                 overlay_departure=entry.get("overlay_departure", ""),
             )
-            logger.info(f"Запланированный пост {entry.get('tour_id')}: ok={ok}")
+            logger.info(f"Запланированный пост {entry.get('tour_id')}: ok={ok}, source={entry['source']}")
+
+            # Помечаем в Sheets как опубликованный
+            if entry["source"] == "sheets" and sheets and entry.get("row_number"):
+                try:
+                    sheets.mark_scheduled_status(entry["row_number"], "ОПУБЛИКОВАН")
+                except Exception as se:
+                    logger.warning(f"Расписание: не смог пометить как опубликованный: {se}")
+            # Удаляем из локальной очереди
+            if entry.get("_local_entry") and entry["_local_entry"] in SCHEDULED_POSTS:
+                SCHEDULED_POSTS.remove(entry["_local_entry"])
+                _save_scheduled(SCHEDULED_POSTS)
         except Exception as e:
             logger.error(f"Ошибка публикации запланированного поста: {e}")
-        finally:
-            SCHEDULED_POSTS.remove(entry)
-            _save_scheduled(SCHEDULED_POSTS)
 
 # ── Tourvisor: отслеживание уже отправленных туров ─────────────
 _SENT_TOURS_FILE = os.path.join(os.path.dirname(__file__), "sent_tours.json")
