@@ -168,6 +168,33 @@ def _country_acc(country: str) -> str:
     return phrase
 
 
+# Telegram parse_mode=HTML принимает только эти теги:
+_TG_ALLOWED_TAGS = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
+                     "a", "code", "pre", "blockquote", "tg-spoiler", "span"}
+
+
+def _sanitize_html_for_telegram(text: str) -> str:
+    """Чистит HTML от тегов которые Telegram не поддерживает (br, p, div и т.п.)."""
+    if not text:
+        return text
+    # Заменяем переводы строк-теги на \n
+    text = re.sub(r"<\s*br\s*/?\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</\s*p\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<\s*p[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?\s*div[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?\s*hr[^>]*>", "\n", text, flags=re.IGNORECASE)
+    # Убираем все остальные теги, кроме разрешённых
+    def _strip(match):
+        tag = match.group(1).lower()
+        if tag in _TG_ALLOWED_TAGS:
+            return match.group(0)
+        return ""
+    text = re.sub(r"</?\s*([a-zA-Z][a-zA-Z0-9-]*)[^>]*>", _strip, text)
+    # Убираем тройные и более переводов строк
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 # Родительный падеж городов (откуда? — из Уфы, из Москвы)
 CITY_GENITIVE = {
     "Уфа":            "Уфы",
@@ -586,7 +613,8 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
 6. ⚡ Количество мест ограничено!
 7. Хэштеги: #горящийтур #{_country_tag(country)}
 
-Стиль: живой, дружелюбный, как от знакомого. Без воды. HTML только <b>. Проверь грамматику и склонение."""
+Стиль: живой, дружелюбный, как от знакомого. Без воды. Проверь грамматику и склонение.
+HTML: разрешён ТОЛЬКО тег <b>...</b>. НЕ используй <br>, <p>, <div>, <hr>, переводы строк делай настоящими переносами (Enter), не тегами."""
 
     # 1) Пробуем GigaChat (если ключ задан)
     if os.getenv("GIGACHAT_AUTH_KEY", "").strip():
@@ -596,6 +624,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
             post = giga_generate(ai_prompt, max_tokens=700)
             if post:
                 logger.info(f"GigaChat вернул пост ({len(post)} символов)")
+                post = _sanitize_html_for_telegram(post)
                 if link_line:
                     post += link_line
                 return post
@@ -616,6 +645,7 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
             messages=[{"role": "user", "content": ai_prompt}],
         )
         post = msg.content[0].text.strip()
+        post = _sanitize_html_for_telegram(post)
         if link_line:
             post += link_line
         return post
