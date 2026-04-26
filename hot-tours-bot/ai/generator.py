@@ -177,6 +177,9 @@ def _sanitize_html_for_telegram(text: str) -> str:
     """Чистит HTML от тегов которые Telegram не поддерживает (br, p, div и т.п.)."""
     if not text:
         return text
+    # Markdown → HTML: **жирный** → <b>жирный</b>, *курсив* → <i>курсив</i>
+    text = re.sub(r"\*\*([^*\n]+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<!\*)\*([^*\n]+?)\*(?!\*)", r"<i>\1</i>", text)
     # Заменяем переводы строк-теги на \n
     text = re.sub(r"<\s*br\s*/?\s*>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</\s*p\s*>", "\n", text, flags=re.IGNORECASE)
