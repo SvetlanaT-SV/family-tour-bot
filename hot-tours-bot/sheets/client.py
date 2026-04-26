@@ -33,6 +33,13 @@ SHEET_CLIENTS   = "Клиенты"             # обновлённые данн
 SHEET_TOURS     = "Туры к публикации"   # менеджер вносит туры, бот публикует
 SHEET_SCHEDULED = "Расписание"          # запланированные посты, переживают перезапуск Railway
 
+SHEET_NEWS_SOURCES = "Источники новостей"
+NEWS_SOURCES_HEADERS = [
+    "Канал",     # ссылка вида https://t.me/atorus_news или просто atorus_news
+    "Категория", # туризм / визы / отели / лайфхаки / разное
+    "Активен",   # да / нет
+]
+
 SCHEDULED_HEADERS = [
     "Когда",        # ISO-дата UTC, например 2026-04-26T19:00:00+00:00
     "Когда МСК",    # человекочитаемо: 26.04 19:00 МСК
@@ -324,6 +331,40 @@ class SheetsClient:
             return result
         except Exception as e:
             print(f"❌ Sheets: ошибка чтения расписания: {e}")
+            return []
+
+    def get_news_sources(self) -> list[str]:
+        """
+        Возвращает список активных каналов-источников новостей.
+        Если листа нет — создаёт его с примерами.
+        """
+        ss = self._get_spreadsheet()
+        if not ss:
+            return []
+        try:
+            ws = ss.worksheet(SHEET_NEWS_SOURCES)
+        except Exception:
+            try:
+                ws = ss.add_worksheet(title=SHEET_NEWS_SOURCES, rows=50, cols=len(NEWS_SOURCES_HEADERS))
+                ws.append_row(NEWS_SOURCES_HEADERS)
+                # Несколько примеров — пользователь сможет редактировать
+                ws.append_row(["https://t.me/atorus_news", "туризм", "нет"])
+                ws.append_row(["https://t.me/Travel_Russia", "туризм", "нет"])
+                ws.append_row(["https://t.me/sletat_ru", "туризм", "нет"])
+            except Exception as e:
+                print(f"❌ Sheets: не смог создать '{SHEET_NEWS_SOURCES}': {e}")
+                return []
+
+        try:
+            rows = ws.get_all_records()
+            return [
+                str(r.get("Канал", "")).strip()
+                for r in rows
+                if str(r.get("Активен", "")).strip().lower() in ("да", "yes", "true", "1")
+                and r.get("Канал")
+            ]
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения источников новостей: {e}")
             return []
 
     def mark_scheduled_status(self, row_number: int, status: str) -> None:

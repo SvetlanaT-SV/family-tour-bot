@@ -488,6 +488,102 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
             sheets.mark_tour_status(row_num, "ОШИБКА", error=str(e))
 
 
+async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
+    """
+    Раз в сутки собирает новости из туристических Telegram-каналов
+    (список в Sheets лист 'Источники новостей'), GigaChat выбирает
+    топ-3 и переписывает в наш стиль, отправляет на одобрение.
+    """
+    if not Config.GOOGLE_CREDENTIALS_FILE or not Config.GOOGLE_SHEET_ID:
+        return
+    if not os.getenv("GIGACHAT_AUTH_KEY", "").strip():
+        logger.info("Новости: GIGACHAT_AUTH_KEY не задан, пропускаю")
+        return
+
+    from datetime import datetime, timezone, timedelta
+    from news import fetch_channel_posts, select_and_rewrite
+
+    sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+    channels = sheets.get_news_sources()
+    if not channels:
+        logger.info("Новости: нет активных каналов-источников")
+        return
+
+    logger.info(f"Новости: проверяю {len(channels)} канал(ов)")
+
+    # Окно времени — последние 24 часа
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    all_posts = []
+    for ch in channels:
+        try:
+            all_posts.extend(fetch_channel_posts(ch, since_dt=since))
+        except Exception as e:
+            logger.warning(f"Новости: канал {ch}: {e}")
+
+    if not all_posts:
+        logger.info("Новости: за сутки ничего не нашёл")
+        return
+
+    logger.info(f"Новости: всего собрано {len(all_posts)} постов, отправляю в GigaChat")
+    rewrites = select_and_rewrite(all_posts, top_n=3)
+    if not rewrites:
+        logger.warning("Новости: GigaChat не вернул переписанных постов")
+        return
+
+    bot = context.bot
+    for i, item in enumerate(rewrites, 1):
+        text = item.get("text", "").strip()
+        if not text:
+            continue
+
+        tour_id = f"news_{int(datetime.now().timestamp())}_{i}"
+        photo_url = (item.get("source_post") or {}).get("photo_url", "") or None
+
+        PENDING_POSTS[tour_id] = {
+            "text":               text,
+            "photo_url":          photo_url,
+            "overlay_country":    "",     # для новостей оверлей не накладываем
+            "overlay_price":      "",
+            "overlay_departure":  "",
+        }
+        _save_pending(PENDING_POSTS)
+
+        preview = f"📰 <b>НОВОСТЬ — на одобрение:</b>\n\n{text}"
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Сейчас",       callback_data=f"approve_{tour_id}"),
+                InlineKeyboardButton("⏰ По расписанию", callback_data=f"schedule_{tour_id}"),
+            ],
+            [InlineKeyboardButton("❌ Пропустить", callback_data=f"reject_{tour_id}")],
+        ])
+
+        photo_content = None
+        if photo_url:
+            try:
+                resp = _requests.get(photo_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.status_code == 200:
+                    photo_content = resp.content
+            except Exception:
+                pass
+
+        for admin_id in Config.TELEGRAM_ADMIN_IDS:
+            try:
+                if photo_content:
+                    await bot.send_photo(
+                        chat_id=admin_id, photo=BytesIO(photo_content),
+                        caption=preview, parse_mode="HTML", reply_markup=keyboard,
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=admin_id, text=preview,
+                        parse_mode="HTML", reply_markup=keyboard,
+                    )
+            except Exception as e:
+                logger.warning(f"Новости: не смог отправить админу {admin_id}: {e}")
+
+        logger.info(f"Новости: отправлен на одобрение tour_id={tour_id}")
+
+
 async def post_init(application: Application) -> None:
     """Запускается после инициализации бота — стартуем планировщик"""
     logger.info("🚀 Family Tour Bot запускается...")
@@ -519,6 +615,16 @@ async def post_init(application: Application) -> None:
         name="scheduled_publish",
     )
     logger.info(f"✅ Планировщик: проверка расписания каждую минуту (слоты {Config.PUBLISH_HOURS} МСК)")
+
+    # Сбор новостей раз в сутки в 8:00 МСК (= 5:00 UTC)
+    from datetime import datetime, timezone, timedelta, time as dtime
+    msk = timezone(timedelta(hours=3))
+    application.job_queue.run_daily(
+        collect_news_job,
+        time=dtime(hour=8, minute=0, tzinfo=msk),
+        name="news_collect",
+    )
+    logger.info("✅ Планировщик: сбор новостей в 8:00 МСК ежедневно")
 
 
 if __name__ == "__main__":

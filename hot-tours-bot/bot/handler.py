@@ -261,6 +261,19 @@ async def send_to_max(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"❌ Не удалось отправить: {e}")
 
 
+async def trigger_news_collection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /news — запустить сбор новостей вручную, не дожидаясь 8:00."""
+    if update.effective_user.id not in Config.TELEGRAM_ADMIN_IDS:
+        return
+    await update.message.reply_text("📰 Запускаю сбор новостей, это займёт 1-2 минуты...")
+    try:
+        from main import collect_news_job
+        await collect_news_job(context)
+        await update.message.reply_text("Готово. Если новости были — пришлю превью отдельным сообщением.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Клиент написал /cancel — прерываем диалог"""
     await update.message.reply_text(
@@ -569,6 +582,9 @@ def build_application(pending_posts: dict = None, save_pending=None,
 
     # Команда /max для отправки сообщений клиентам MAX
     app.add_handler(CommandHandler("max", send_to_max))
+
+    # Команда /news для ручного сбора новостей
+    app.add_handler(CommandHandler("news", trigger_news_collection))
 
     # Обработчик кнопок одобрения (для руководителя)
     app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject|schedule)_"))
