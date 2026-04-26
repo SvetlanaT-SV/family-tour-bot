@@ -537,7 +537,10 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
             continue
 
         tour_id = f"news_{int(datetime.now().timestamp())}_{i}"
-        photo_url = (item.get("source_post") or {}).get("photo_url", "") or None
+        source = item.get("source_post") or {}
+        photo_url = source.get("photo_url", "") or None
+        src_url    = source.get("post_url", "")
+        src_channel = source.get("channel_username", "")
 
         PENDING_POSTS[tour_id] = {
             "text":               text,
@@ -548,7 +551,11 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
         }
         _save_pending(PENDING_POSTS)
 
-        preview = f"📰 <b>НОВОСТЬ — на одобрение:</b>\n\n{text}"
+        # В превью — служебная шапка с источником, в самом тексте поста её нет
+        source_line = ""
+        if src_url:
+            source_line = f"\n🔗 Источник: <a href=\"{src_url}\">@{src_channel}</a>\n"
+        preview = f"📰 <b>НОВОСТЬ — на одобрение:</b>{source_line}\n{text}"
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Сейчас",       callback_data=f"approve_{tour_id}"),
