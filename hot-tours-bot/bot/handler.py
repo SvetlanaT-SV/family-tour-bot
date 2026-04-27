@@ -341,13 +341,30 @@ async def publish_to_channels(bot, post_text: str,
                 parse_mode="HTML",
             )
 
+        logger.info(
+            f"VK: попытка публикации — token={'есть' if Config.VK_TOKEN else 'НЕТ'}, "
+            f"group_id={Config.VK_GROUP_ID}, photo_url={'есть' if photo_url else 'нет'}, "
+            f"photo_bytes={'есть' if tg_photo_content else 'нет'}"
+        )
         if Config.VK_TOKEN and Config.VK_GROUP_ID:
             try:
                 vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
-                vk.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
+                vk_result = vk.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
+                logger.info(f"VK: результат publish={vk_result}")
             except Exception as vk_err:
                 logger.warning(f"⚠️ VK публикация не удалась: {vk_err}")
+        else:
+            logger.warning(
+                f"VK: ПРОПУЩЕНО — отсутствует "
+                f"{'VK_TOKEN' if not Config.VK_TOKEN else ''}"
+                f"{' и ' if not Config.VK_TOKEN and not Config.VK_GROUP_ID else ''}"
+                f"{'VK_GROUP_ID' if not Config.VK_GROUP_ID else ''} в Railway Variables"
+            )
 
+        logger.info(
+            f"MAX: попытка публикации — token={'есть' if Config.MAX_TOKEN else 'НЕТ'}, "
+            f"chat_id={Config.MAX_CHAT_ID}"
+        )
         if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
             try:
                 max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
