@@ -89,10 +89,19 @@ class MAXPublisher:
         Публикует пост в канал MAX.
         Возвращает mid (ID сообщения) при успехе.
         """
-        # Заменяем ссылку на Telegram бота на ссылку на MAX бота
-        max_text = text.replace(
-            "📩 Написать нам: <b>@hottourpegas_bot</b>",
-            "📩 Написать нам: <b>max.ru/id027708174835_bot</b>",
+        # Заменяем любое упоминание @hottourpegas_bot на ссылку MAX-бота
+        # (GigaChat иногда формулирует строку иначе, поэтому regex-подход)
+        max_bot_link = "max.ru/id027708174835_bot"
+        max_text = re.sub(
+            r"@hottourpegas_bot",
+            max_bot_link,
+            text,
+            flags=re.IGNORECASE,
+        )
+        # Заменяем точную фразу красивее (если совпала)
+        max_text = max_text.replace(
+            f"📩 Написать нам: <b>{max_bot_link}</b>",
+            f"📩 Написать нам: <b>{max_bot_link}</b>",
         )
         # Убираем HTML-теги кроме <b> и <i> — MAX поддерживает только их
         max_text = re.sub(r"<(?!/?b>|/?i>)[^>]+>", "", max_text)

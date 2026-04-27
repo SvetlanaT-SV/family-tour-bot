@@ -119,9 +119,12 @@ class VKPublisher:
     def publish(self, text: str, photo_url: Optional[str] = None,
                 photo_bytes: Optional[bytes] = None) -> Optional[int]:
         """Публикует пост на стене группы. Возвращает post_id."""
-        vk_text = text.replace(
-            "📩 Написать нам: <b>@hottourpegas_bot</b>",
-            "📩 Написать нам: vk.me/family_toor",
+        # Заменяем любое упоминание @hottourpegas_bot на ссылку VK-сообщества
+        vk_text = re.sub(
+            r"@hottourpegas_bot",
+            "vk.me/family_toor",
+            text,
+            flags=re.IGNORECASE,
         )
         vk_text = re.sub(r"<[^>]+>", "", vk_text)
 
