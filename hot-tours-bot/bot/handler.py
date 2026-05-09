@@ -368,7 +368,7 @@ async def publish_to_channels(bot, post_text: str,
         if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
             try:
                 max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
-                max_pub.publish(post_text, photo_url or None)
+                max_pub.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
             except Exception as max_err:
                 logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")
 

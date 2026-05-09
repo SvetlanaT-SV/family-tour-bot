@@ -45,12 +45,14 @@ class MAXPublisher:
             logger.warning(f"Ошибка запроса к MAX: {e}")
             return {}
 
-    def _upload_photo(self, photo_url: str) -> Optional[dict]:
+    def _upload_photo(self, photo_url: Optional[str] = None,
+                       photo_bytes: Optional[bytes] = None) -> Optional[dict]:
         """
         Загружает фото в MAX в два шага:
           1. Получаем URL для загрузки через POST /uploads?type=image
           2. Загружаем файл по этому URL через multipart/form-data
-        Возвращает dict с данными фото для вложения (token или url).
+        Принимает либо готовые байты (приоритет — с наложенным overlay),
+        либо внешний URL (тогда сначала скачаем).
         """
         # Шаг 1: получаем адрес сервера для загрузки
         upload_data = self._call("POST", "/uploads", params={"type": "image"})
@@ -59,21 +61,27 @@ class MAXPublisher:
             logger.warning(f"MAX: не получили upload URL: {upload_data}")
             return None
 
-        # Шаг 2: скачиваем фото по внешней ссылке
-        try:
-            img_resp = requests.get(photo_url, timeout=15, headers={
-                "User-Agent": "Mozilla/5.0"
-            })
-            img_resp.raise_for_status()
-        except Exception as e:
-            logger.warning(f"MAX: не удалось скачать фото: {e}")
+        # Шаг 2: получаем содержимое фото
+        if photo_bytes:
+            content = photo_bytes
+        elif photo_url:
+            try:
+                img_resp = requests.get(photo_url, timeout=15, headers={
+                    "User-Agent": "Mozilla/5.0"
+                })
+                img_resp.raise_for_status()
+                content = img_resp.content
+            except Exception as e:
+                logger.warning(f"MAX: не удалось скачать фото: {e}")
+                return None
+        else:
             return None
 
         # Шаг 3: загружаем на сервер MAX
         try:
             upload_resp = requests.post(
                 upload_url,
-                files={"file": ("photo.jpg", img_resp.content, "image/jpeg")},
+                files={"file": ("photo.jpg", content, "image/jpeg")},
                 timeout=30,
             )
             upload_resp.raise_for_status()
@@ -84,7 +92,8 @@ class MAXPublisher:
             logger.warning(f"MAX: не удалось загрузить фото: {e}")
             return None
 
-    def publish(self, text: str, photo_url: Optional[str] = None) -> Optional[str]:
+    def publish(self, text: str, photo_url: Optional[str] = None,
+                photo_bytes: Optional[bytes] = None) -> Optional[str]:
         """
         Публикует пост в канал MAX.
         Возвращает mid (ID сообщения) при успехе.
@@ -113,8 +122,9 @@ class MAXPublisher:
         }
 
         # Если есть фото — загружаем и добавляем как вложение
-        if photo_url:
-            photo_data = self._upload_photo(photo_url)
+        # Приоритет — байты с наложенным overlay (как в TG/VK)
+        if photo_bytes or photo_url:
+            photo_data = self._upload_photo(photo_url=photo_url, photo_bytes=photo_bytes)
             if photo_data:
                 # MAX API возвращает photos как dict: {key: {"token": "..."}}
                 photos = photo_data.get("photos", {})
