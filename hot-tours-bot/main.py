@@ -522,6 +522,7 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
 
     if not all_posts:
         logger.info("Новости: за сутки ничего не нашёл")
+        sheets.set_meta("news_last_run_msk", datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d"))
         return
 
     logger.info(f"Новости: всего собрано {len(all_posts)} постов, отправляю в GigaChat")
@@ -529,6 +530,9 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
     if not rewrites:
         logger.warning("Новости: GigaChat не вернул переписанных постов")
         return
+
+    # Помечаем что сегодня сбор уже прошёл — чтобы при перезапуске не дублировать
+    sheets.set_meta("news_last_run_msk", datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d"))
 
     bot = context.bot
     for i, item in enumerate(rewrites, 1):
@@ -632,6 +636,25 @@ async def post_init(application: Application) -> None:
         name="news_collect",
     )
     logger.info("✅ Планировщик: сбор новостей в 8:00 МСК ежедневно")
+
+    # Догон: если бот стартовал ПОСЛЕ 8:00 МСК и сегодняшний сбор ещё не прошёл —
+    # запускаем разово через минуту. Защищает от пропусков из-за передеплоев.
+    try:
+        if Config.GOOGLE_CREDENTIALS_FILE and Config.GOOGLE_SHEET_ID:
+            sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+            now_msk = datetime.now(msk)
+            today_str = now_msk.strftime("%Y-%m-%d")
+            last_run = sheets.get_meta("news_last_run_msk")
+            if now_msk.hour >= 8 and last_run != today_str:
+                logger.info(
+                    f"Новости: догон — сегодня {today_str} ещё не было сбора "
+                    f"(last_run={last_run!r}), запускаю через 60 сек"
+                )
+                application.job_queue.run_once(collect_news_job, when=60, name="news_catchup")
+            else:
+                logger.info(f"Новости: догон не нужен (now={now_msk.hour}h, last_run={last_run!r})")
+    except Exception as e:
+        logger.warning(f"Новости: проверка догона не удалась: {e}")
 
 
 if __name__ == "__main__":

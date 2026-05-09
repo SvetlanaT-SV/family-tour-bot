@@ -33,6 +33,8 @@ SHEET_CLIENTS   = "Клиенты"             # обновлённые данн
 SHEET_TOURS     = "Туры к публикации"   # менеджер вносит туры, бот публикует
 SHEET_SCHEDULED = "Расписание"          # запланированные посты, переживают перезапуск Railway
 
+SHEET_META       = "Метаданные"  # key-value для служебных меток (last news run и т.п.)
+
 SHEET_NEWS_SOURCES = "Источники новостей"
 NEWS_SOURCES_HEADERS = [
     "Канал",     # ссылка вида https://t.me/atorus_news или просто atorus_news
@@ -332,6 +334,49 @@ class SheetsClient:
         except Exception as e:
             print(f"❌ Sheets: ошибка чтения расписания: {e}")
             return []
+
+    def _get_meta_ws(self):
+        ss = self._get_spreadsheet()
+        if not ss:
+            return None
+        try:
+            return ss.worksheet(SHEET_META)
+        except Exception:
+            try:
+                ws = ss.add_worksheet(title=SHEET_META, rows=50, cols=2)
+                ws.append_row(["Ключ", "Значение"])
+                return ws
+            except Exception as e:
+                print(f"❌ Sheets: не смог создать '{SHEET_META}': {e}")
+                return None
+
+    def get_meta(self, key: str) -> str:
+        """Читает значение по ключу из листа 'Метаданные'."""
+        ws = self._get_meta_ws()
+        if not ws:
+            return ""
+        try:
+            for row in ws.get_all_records():
+                if str(row.get("Ключ", "")).strip() == key:
+                    return str(row.get("Значение", "")).strip()
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения meta {key}: {e}")
+        return ""
+
+    def set_meta(self, key: str, value: str) -> None:
+        """Записывает/обновляет значение по ключу."""
+        ws = self._get_meta_ws()
+        if not ws:
+            return
+        try:
+            cells = ws.col_values(1)
+            for i, k in enumerate(cells, start=1):
+                if k == key:
+                    ws.update_cell(i, 2, value)
+                    return
+            ws.append_row([key, value])
+        except Exception as e:
+            print(f"❌ Sheets: ошибка записи meta {key}: {e}")
 
     def get_news_sources(self) -> list[str]:
         """
