@@ -76,13 +76,29 @@ def fetch_channel_posts(channel: str, since_dt: Optional[datetime] = None,
         text_el = msg.select_one(".tgme_widget_message_text")
         text = text_el.get_text("\n", strip=True) if text_el else ""
 
-        # Фото — у фото-обёртки в style="background-image:url('...')"
+        # Фото ищем в нескольких возможных местах:
+        #   1. одиночное фото                — .tgme_widget_message_photo_wrap
+        #   2. альбом из нескольких фото     — .tgme_widget_message_grouped_layer .tgme_widget_message_photo_wrap
+        #   3. превью ссылки (статья и т.п.) — .link_preview_right_image / .link_preview_image
+        #   4. превью видео                  — .tgme_widget_message_video_thumb
         photo_url = ""
-        photo_wrap = msg.select_one(".tgme_widget_message_photo_wrap")
-        if photo_wrap and "style" in photo_wrap.attrs:
-            m = re.search(r"url\(['\"]?([^'\")]+)['\"]?\)", photo_wrap["style"])
+        candidates = []
+        for sel in (
+            ".tgme_widget_message_photo_wrap",
+            ".tgme_widget_message_grouped_layer .tgme_widget_message_photo_wrap",
+            ".link_preview_right_image",
+            ".link_preview_image",
+            ".tgme_widget_message_video_thumb",
+        ):
+            el = msg.select_one(sel)
+            if el is not None:
+                candidates.append(el)
+        for el in candidates:
+            style = el.attrs.get("style", "")
+            m = re.search(r"url\(['\"]?([^'\")]+)['\"]?\)", style)
             if m:
                 photo_url = m.group(1)
+                break
 
         # Просмотры
         views = 0

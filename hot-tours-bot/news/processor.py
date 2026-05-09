@@ -109,11 +109,51 @@ def select_and_rewrite(posts: list[dict], top_n: int = 3) -> list[dict]:
         try:
             src_idx = int(item.get("src", 0)) - 1  # 1-based → 0-based
             source = posts[src_idx] if 0 <= src_idx < len(posts) else None
+            title = (item.get("title") or "").strip()
+            text  = (item.get("text") or "").strip()
+
+            # Гарантируем что пост начинается с <b>заголовка</b>.
+            # GigaChat иногда забывает обернуть первую строку в <b>.
+            text = _ensure_headline(text, title)
+
             result.append({
-                "title":       item.get("title", ""),
-                "text":        item.get("text", ""),
+                "title":       title,
+                "text":        text,
                 "source_post": source,
             })
         except Exception:
             continue
     return result
+
+
+def _ensure_headline(text: str, title: str) -> str:
+    """
+    Если первая непустая строка не обёрнута в <b>...</b>, добавляем
+    <b>title</b> сверху (или оборачиваем первую строку, если title пустой).
+    """
+    if not text:
+        return text
+    stripped = text.lstrip()
+    # Уже есть жирный заголовок в начале — ничего не делаем
+    if stripped.startswith("<b>") and "</b>" in stripped[:200]:
+        return text
+
+    # Берём первую непустую строку
+    lines = text.split("\n")
+    first_idx = next((i for i, ln in enumerate(lines) if ln.strip()), -1)
+    if first_idx == -1:
+        return text
+    first = lines[first_idx].strip()
+
+    if title:
+        # Подставляем заголовок сверху, оригинальный текст оставляем как есть
+        head = f"<b>{title}</b>"
+        # Если первая строка совпадает с title — не дублируем
+        if first.lower() == title.lower() or first.lower() == f"<b>{title}</b>".lower():
+            lines[first_idx] = head
+            return "\n".join(lines)
+        return f"{head}\n\n{text}"
+
+    # Title пустой — оборачиваем первую строку в <b>
+    lines[first_idx] = f"<b>{first}</b>"
+    return "\n".join(lines)
