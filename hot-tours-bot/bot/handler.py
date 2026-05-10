@@ -274,6 +274,55 @@ async def trigger_news_collection(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+async def show_recent_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Команда /errors — показать последние ошибки бота прямо в Telegram."""
+    if update.effective_user.id not in Config.TELEGRAM_ADMIN_IDS:
+        return
+
+    args = context.args or []
+    try:
+        limit = int(args[0]) if args else 5
+    except ValueError:
+        limit = 5
+    limit = max(1, min(limit, 20))
+
+    from error_logger import get_recent_errors
+    entries = get_recent_errors(limit=limit)
+
+    # Если буфер пуст (после перезапуска) — читаем из Sheets
+    if not entries:
+        try:
+            sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+            rows = sheets.get_recent_errors_from_sheet(limit=limit)
+            entries = [
+                {
+                    "time":    r.get("Время", ""),
+                    "level":   r.get("Уровень", ""),
+                    "logger":  r.get("Источник", ""),
+                    "message": r.get("Сообщение", ""),
+                }
+                for r in rows
+            ]
+        except Exception:
+            entries = []
+
+    if not entries:
+        await update.message.reply_text("✅ Ошибок нет — всё работает чисто")
+        return
+
+    icon = {"WARNING": "⚠️", "ERROR": "❌", "CRITICAL": "🚨"}
+    lines = [f"📋 <b>Последние {len(entries)} ошибок:</b>\n"]
+    for e in entries:
+        lvl = e.get("level", "")
+        lines.append(
+            f"{icon.get(lvl, '•')} <b>{lvl}</b> · {e.get('time', '')}\n"
+            f"<i>{e.get('logger', '')}</i>\n"
+            f"<code>{(e.get('message', '') or '')[:300]}</code>\n"
+        )
+    text = "\n".join(lines)
+    await update.message.reply_text(text[:4000], parse_mode="HTML")
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Клиент написал /cancel — прерываем диалог"""
     await update.message.reply_text(
@@ -602,6 +651,9 @@ def build_application(pending_posts: dict = None, save_pending=None,
 
     # Команда /news для ручного сбора новостей
     app.add_handler(CommandHandler("news", trigger_news_collection))
+
+    # Команда /errors для просмотра последних ошибок
+    app.add_handler(CommandHandler("errors", show_recent_errors))
 
     # Обработчик кнопок одобрения (для руководителя)
     app.add_handler(CallbackQueryHandler(handle_approval_with_store, pattern="^(approve|reject|schedule)_"))

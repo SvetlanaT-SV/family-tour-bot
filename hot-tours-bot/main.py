@@ -38,6 +38,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Журнал ошибок в Google Sheets ──
+# Все WARNING/ERROR/CRITICAL автоматически пишутся в лист "Журнал ошибок"
+# для быстрой диагностики без необходимости лезть в Railway logs.
+from error_logger import install_error_logger, flush_buffer as flush_errors_buffer
+
+
+def _notify_admin_on_critical(entry: dict) -> None:
+    """Push в Telegram при CRITICAL ошибках."""
+    if not (Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_ADMIN_IDS):
+        return
+    text = (
+        f"🚨 <b>КРИТИЧЕСКАЯ ОШИБКА</b>\n\n"
+        f"⏰ {entry.get('time', '')}\n"
+        f"📍 {entry.get('logger', '')}\n"
+        f"💬 {entry.get('message', '')[:500]}"
+    )
+    for admin_id in Config.TELEGRAM_ADMIN_IDS:
+        try:
+            _requests.post(
+                f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": admin_id, "text": text, "parse_mode": "HTML"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
+install_error_logger(level=logging.WARNING, notify_admin=_notify_admin_on_critical)
+
 # ── Флаг режима: True = присылать на одобрение, False = автопилот ──
 APPROVAL_MODE = True
 
@@ -488,6 +517,20 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
             sheets.mark_tour_status(row_num, "ОШИБКА", error=str(e))
 
 
+async def flush_error_logs_job(context: ContextTypes.DEFAULT_TYPE = None):
+    """Каждую минуту сбрасывает буфер ошибок в Google Sheets лист 'Журнал ошибок'."""
+    if not (Config.GOOGLE_CREDENTIALS_FILE and Config.GOOGLE_SHEET_ID):
+        return
+    try:
+        sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+        flushed = flush_errors_buffer(sheets)
+        if flushed:
+            # Не используем logger.info — это вызовет рекурсию (handler пишет в этот же буфер)
+            print(f"📝 Журнал ошибок: выгружено {flushed} записей в Sheets")
+    except Exception as e:
+        print(f"⚠️ flush_error_logs_job: {e}")
+
+
 async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
     """
     Раз в сутки собирает новости из туристических Telegram-каналов
@@ -626,6 +669,15 @@ async def post_init(application: Application) -> None:
         name="scheduled_publish",
     )
     logger.info(f"✅ Планировщик: проверка расписания каждую минуту (слоты {Config.PUBLISH_HOURS} МСК)")
+
+    # Сброс журнала ошибок в Google Sheets — каждые 60 секунд
+    application.job_queue.run_repeating(
+        flush_error_logs_job,
+        interval=60,
+        first=45,
+        name="flush_error_logs",
+    )
+    logger.info("✅ Планировщик: журнал ошибок выгружается в Sheets каждую минуту")
 
     # Сбор новостей раз в сутки в 8:00 МСК (= 5:00 UTC)
     from datetime import datetime, timezone, timedelta, time as dtime

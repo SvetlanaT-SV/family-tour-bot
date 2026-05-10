@@ -35,6 +35,16 @@ SHEET_SCHEDULED = "Расписание"          # запланированны
 
 SHEET_META       = "Метаданные"  # key-value для служебных меток (last news run и т.п.)
 
+SHEET_ERRORS = "Журнал ошибок"  # сюда пишутся WARNING/ERROR/CRITICAL для быстрой диагностики
+ERRORS_HEADERS = [
+    "Время",      # ДД.ММ.ГГГГ ЧЧ:ММ:СС МСК
+    "Уровень",    # WARNING / ERROR / CRITICAL
+    "Источник",   # имя логгера (publisher.vk и т.п.)
+    "Сообщение",  # короткое описание
+    "Контекст",   # traceback при ошибке (опционально)
+]
+MAX_ERROR_ROWS = 1000  # после этого старые автоматически чистятся
+
 SHEET_NEWS_SOURCES = "Источники новостей"
 NEWS_SOURCES_HEADERS = [
     "Канал",     # ссылка вида https://t.me/atorus_news или просто atorus_news
@@ -426,6 +436,79 @@ class SheetsClient:
             ws.update_cell(row_number, col, status)
         except Exception as e:
             print(f"❌ Sheets: ошибка обновления статуса расписания: {e}")
+
+    # ── Лист "Журнал ошибок" ─────────────────────────────────────
+
+    def _get_errors_ws(self):
+        """Возвращает worksheet журнала ошибок, создаёт лист если его нет."""
+        ss = self._get_spreadsheet()
+        if not ss:
+            return None
+        try:
+            return ss.worksheet(SHEET_ERRORS)
+        except Exception:
+            try:
+                ws = ss.add_worksheet(title=SHEET_ERRORS, rows=MAX_ERROR_ROWS + 100,
+                                       cols=len(ERRORS_HEADERS))
+                ws.append_row(ERRORS_HEADERS)
+                ws.format(f"A1:{chr(64 + len(ERRORS_HEADERS))}1",
+                          {"textFormat": {"bold": True}})
+                return ws
+            except Exception as e:
+                print(f"❌ Sheets: не смог создать '{SHEET_ERRORS}': {e}")
+                return None
+
+    def append_error_logs(self, entries: list[dict]) -> bool:
+        """
+        Добавляет batch записей в журнал ошибок одним API-вызовом.
+        entries — список dict с полями time, level, logger, message, context.
+        Возвращает True если успешно.
+        """
+        if not entries:
+            return True
+        ws = self._get_errors_ws()
+        if not ws:
+            return False
+        try:
+            rows = [
+                [
+                    e.get("time", ""),
+                    e.get("level", ""),
+                    e.get("logger", ""),
+                    (e.get("message", "") or "")[:1000],   # cap длины ячейки
+                    (e.get("context", "") or "")[:2000],
+                ]
+                for e in entries
+            ]
+            ws.append_rows(rows, value_input_option="RAW")
+
+            # Чистка старых: если строк > MAX_ERROR_ROWS — удаляем самые ранние
+            try:
+                total = ws.row_count
+                values = ws.col_values(1)  # только колонка времени, дешевле
+                actual_rows = len([v for v in values if v]) - 1  # минус заголовок
+                if actual_rows > MAX_ERROR_ROWS:
+                    excess = actual_rows - MAX_ERROR_ROWS
+                    # Удаляем строки 2..2+excess (после заголовка)
+                    ws.delete_rows(2, 1 + excess)
+            except Exception:
+                pass  # чистка не критична
+            return True
+        except Exception as e:
+            print(f"❌ Sheets: не смог записать журнал ошибок: {e}")
+            return False
+
+    def get_recent_errors_from_sheet(self, limit: int = 10) -> list[dict]:
+        """Возвращает последние N записей из журнала ошибок (для команды /errors при пустом буфере)."""
+        ws = self._get_errors_ws()
+        if not ws:
+            return []
+        try:
+            rows = ws.get_all_records()
+            return rows[-limit:] if rows else []
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения журнала ошибок: {e}")
+            return []
 
     def get_all_leads(self) -> list[dict]:
         """

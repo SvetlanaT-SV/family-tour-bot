@@ -87,6 +87,16 @@ tourvisor/
                          find_country_id, list_hotels, find_hotel_id.
                          search.php и hotel.php требуют платную подписку — НЕ ИСПОЛЬЗУЕМ.
 
+error_logger/
+  sheets_handler.py    — централизованный журнал ошибок. SheetsErrorHandler
+                         подключается к корневому логгеру через install() в main.py
+                         и буферизует все WARNING/ERROR/CRITICAL. Раз в минуту
+                         job flush_error_logs_job() выгружает буфер в Google
+                         Sheets лист "Журнал ошибок". CRITICAL дополнительно
+                         пушит в Telegram админу через notify_admin callback.
+                         Buffer — deque(2000), thread-safe. /errors показывает
+                         содержимое буфера, при пустом буфере читает из Sheets.
+
 image_overlay/
   overlay.py           — Pillow, накладывает на фото красную плашку "ГОРЯЩИЙ ТУР",
                          название страны и цену. DejaVu Sans Bold (apt-устанавливается
@@ -159,6 +169,16 @@ image_overlay/
 - `news_last_run_msk` — дата (YYYY-MM-DD по МСК) последнего успешного сбора новостей.
   Используется для догона пропущенных дней при перезапуске бота после 08:00.
 
+### Лист "Журнал ошибок"
+`Время | Уровень | Источник | Сообщение | Контекст` — все WARNING/ERROR/CRITICAL пишутся
+автоматически из всех модулей бота (создаётся автоматически при первой ошибке).
+- Время в МСК для удобства просмотра
+- Уровень: WARNING / ERROR / CRITICAL
+- Источник — имя логгера (publisher.vk, ai.gigachat, news.collector и т.п.)
+- Старые записи (>1000) автоматически удаляются — старший конец очищается на flush
+- В Telegram-боте команда `/errors [N]` показывает последние N ошибок (по умолчанию 5)
+- При CRITICAL — мгновенное push-уведомление всем админам в Telegram
+
 ## ENV vars (Railway Variables)
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`
 - `TELEGRAM_ADMIN_ID` — comma-separated `418012639,ID_МЕНЕДЖЕРА`
@@ -174,6 +194,7 @@ image_overlay/
 В чате с `@hottourpegas_bot`:
 - `/max USER_ID текст` — отправить сообщение клиенту MAX через бот
 - `/news` — запустить сбор новостей вручную (не дожидаясь 08:00)
+- `/errors [N]` — показать последние N (по умолчанию 5) ошибок бота. Полезно когда бот ведёт себя странно — без захода на Railway.
 
 ## HTML и стиль постов
 - Telegram parse_mode=HTML принимает только: `<b>`, `<i>`, `<u>`, `<s>`, `<a>`, `<code>`, `<pre>`, `<blockquote>`, `<tg-spoiler>`, `<span>`
