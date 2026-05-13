@@ -494,7 +494,11 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     tg.publish(text, photo_url)
 
                 if Config.VK_TOKEN and Config.VK_GROUP_ID:
-                    vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
+                    vk = VKPublisher(
+                        token=Config.VK_TOKEN,
+                        group_id=Config.VK_GROUP_ID,
+                        user_token=Config.VK_USER_TOKEN or None,
+                    )
                     vk.publish(text, photo_url)
 
                 if Config.MAX_TOKEN and Config.MAX_CHAT_ID:

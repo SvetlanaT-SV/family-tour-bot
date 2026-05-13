@@ -3,8 +3,13 @@ publisher/vk.py — Публикация постов в ВКонтакте
 
 Публикует пост с фото на стену группы vk.com/family_toor.
 
-Используется только групповой токен (VK_TOKEN). У него должны быть
-включены права: wall, photos, manage, messages.
+Токены:
+- VK_TOKEN (групповой) — для wall.post (пост от имени группы)
+- VK_USER_TOKEN (личный, опционально) — для загрузки фото
+  (photos.getWallUploadServer и photos.saveWallPhoto не работают
+  с групповым токеном — VK возвращает ошибку 27)
+
+Если VK_USER_TOKEN не задан, фото будет приложено ссылкой (как fallback).
 
 Документация VK API: https://dev.vk.com/api/wall.post
 """
@@ -29,15 +34,21 @@ class VKPublisher:
     API_URL = "https://api.vk.com/method/{method}"
     API_VER = "5.199"
 
-    def __init__(self, token: str, group_id: int):
-        self.token    = token
-        self.group_id = group_id
+    def __init__(self, token: str, group_id: int, user_token: Optional[str] = None):
+        self.token      = token        # групповой токен (для wall.post)
+        self.user_token = user_token   # личный токен админа группы (для photo upload)
+        self.group_id   = group_id
 
-    def _call(self, method: str, params: dict) -> dict:
-        """Делает запрос к VK API с групповым токеном."""
+    def _call(self, method: str, params: dict, use_user_token: bool = False) -> dict:
+        """
+        Делает запрос к VK API. По умолчанию использует групповой токен,
+        но для методов которые требуют админ-прав (photos.*) можно
+        передать use_user_token=True — тогда используется VK_USER_TOKEN.
+        """
         url = self.API_URL.format(method=method)
+        token = self.user_token if (use_user_token and self.user_token) else self.token
         all_params = {
-            "access_token": self.token,
+            "access_token": token,
             "v":            self.API_VER,
             **params,
         }
@@ -59,9 +70,11 @@ class VKPublisher:
         Принимает либо URL, либо готовые bytes. photo_bytes имеет приоритет.
         Возвращает attachment-строку вида "photo{owner_id}_{photo_id}".
         """
+        # photos.getWallUploadServer работает ТОЛЬКО с user-token (group-token падает с error 27)
         upload_data = self._call(
             "photos.getWallUploadServer",
             {"group_id": self.group_id},
+            use_user_token=True,
         )
         upload_url_vk = upload_data.get("response", {}).get("upload_url")
         if not upload_url_vk:
@@ -95,7 +108,7 @@ class VKPublisher:
             logger.warning(f"VK: не удалось загрузить фото: {e}")
             return None
 
-        # Шаг 4: сохраняем фото в альбом группы
+        # photos.saveWallPhoto тоже требует user-token
         save_data = self._call(
             "photos.saveWallPhoto",
             {
@@ -104,6 +117,7 @@ class VKPublisher:
                 "server":   upload_response.get("server"),
                 "hash":     upload_response.get("hash"),
             },
+            use_user_token=True,
         )
 
         photos = save_data.get("response", [])

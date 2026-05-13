@@ -397,7 +397,11 @@ async def publish_to_channels(bot, post_text: str,
         )
         if Config.VK_TOKEN and Config.VK_GROUP_ID:
             try:
-                vk = VKPublisher(token=Config.VK_TOKEN, group_id=Config.VK_GROUP_ID)
+                vk = VKPublisher(
+                    token=Config.VK_TOKEN,
+                    group_id=Config.VK_GROUP_ID,
+                    user_token=Config.VK_USER_TOKEN or None,
+                )
                 vk_result = vk.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
                 logger.info(f"VK: результат publish={vk_result}")
             except Exception as vk_err:
