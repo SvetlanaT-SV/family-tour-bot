@@ -240,7 +240,84 @@ def _sanitize_html_for_telegram(text: str) -> str:
     text = re.sub(r"</?\s*([a-zA-Z][a-zA-Z0-9-]*)[^>]*>", _strip, text)
     # Убираем тройные и более переводов строк
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    text = text.strip()
+    # Финальный шаг: обрезаем блок-описание до одного предложения
+    text = _trim_description_to_one_sentence(text)
+    return text
+
+
+def _trim_description_to_one_sentence(text: str) -> str:
+    """
+    Гарантирует что блок описания (между деталями тура и первым ✅) состоит
+    ровно из одного предложения, без подзаголовков и второго абзаца.
+
+    Структура поста, на которую опираемся:
+       <b>заголовок</b>
+       (пустая строка)
+       ✈️ Вылет: ...
+       🏨 ОТЕЛЬ
+       🍽 Питание: ...
+       💰 Цена: ...
+       (пустая строка)
+       [блок описания — режем этот]
+       (пустая строка)
+       ✅ преимущество 1
+       ✅ преимущество 2
+    """
+    if not text or "✅" not in text:
+        return text
+
+    lines = text.split("\n")
+
+    # Индекс первой строки с ✅
+    first_check = next(
+        (i for i, line in enumerate(lines) if line.strip().startswith("✅")),
+        None,
+    )
+    if first_check is None or first_check < 4:
+        return text
+
+    # Индекс последней строки деталей (✈️/🏨/🍽/💰 в начале)
+    detail_markers = ("✈️", "🏨", "🍽", "💰", "🌊")
+    last_detail = -1
+    for i in range(first_check):
+        stripped = lines[i].strip()
+        if any(stripped.startswith(em) for em in detail_markers):
+            last_detail = i
+
+    if last_detail == -1:
+        return text
+
+    # Содержимое блока описания (всё что между деталями и ✅)
+    desc_lines = [ln.strip() for ln in lines[last_detail + 1:first_check] if ln.strip()]
+    if not desc_lines:
+        return text
+
+    desc_text = " ".join(desc_lines)
+
+    # Удаляем "подзаголовок:" в начале если есть (типа "Отдых во Вьетнаме:")
+    # Признак подзаголовка: короткая фраза (до 50 символов) до первого двоеточия,
+    # не содержащая точек, восклицаний или вопросов.
+    m = re.match(r"^([^.!?\n]{1,50}):\s+", desc_text)
+    if m:
+        desc_text = desc_text[m.end():]
+
+    # Берём только первое предложение
+    sent_match = re.search(r"^[^.!?]+[.!?]", desc_text)
+    if sent_match:
+        first_sentence = sent_match.group(0).strip()
+        # Если первое предложение всё ещё слишком длинное (>200 симв)
+        # — оставляем как есть, но без второго предложения. 200 — мягкий лимит.
+        desc_text = first_sentence
+    elif len(desc_text) > 250:
+        desc_text = desc_text[:250].rstrip() + "..."
+
+    # Собираем пост обратно
+    return "\n".join(
+        lines[:last_detail + 1]
+        + ["", desc_text, ""]
+        + lines[first_check:]
+    )
 
 
 # Родительный падеж городов (откуда? — из Уфы, из Москвы)
