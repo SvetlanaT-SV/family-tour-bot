@@ -34,6 +34,13 @@ SHEET_TOURS     = "Туры к публикации"   # менеджер вно
 SHEET_SCHEDULED = "Расписание"          # запланированные посты, переживают перезапуск Railway
 
 SHEET_META       = "Метаданные"  # key-value для служебных меток (last news run и т.п.)
+SHEET_HOTELS_DESC = "Описания отелей"  # кэш реальных описаний с tophotels.ru
+HOTELS_DESC_HEADERS = [
+    "Отель",            # как написано в туре
+    "Страна",
+    "Описание",         # форматированный текст для промпта ИИ
+    "Когда обновлено",  # ДД.ММ.ГГГГ ЧЧ:ММ
+]
 
 SHEET_ERRORS = "Журнал ошибок"  # сюда пишутся WARNING/ERROR/CRITICAL для быстрой диагностики
 ERRORS_HEADERS = [
@@ -387,6 +394,73 @@ class SheetsClient:
             ws.append_row([key, value])
         except Exception as e:
             print(f"❌ Sheets: ошибка записи meta {key}: {e}")
+
+    # ── Кэш описаний отелей с tophotels.ru ───────────────────────
+
+    def _get_hotels_desc_ws(self):
+        ss = self._get_spreadsheet()
+        if not ss:
+            return None
+        try:
+            return ss.worksheet(SHEET_HOTELS_DESC)
+        except Exception:
+            try:
+                ws = ss.add_worksheet(
+                    title=SHEET_HOTELS_DESC,
+                    rows=500,
+                    cols=len(HOTELS_DESC_HEADERS),
+                )
+                ws.append_row(HOTELS_DESC_HEADERS)
+                ws.format(
+                    f"A1:{chr(64 + len(HOTELS_DESC_HEADERS))}1",
+                    {"textFormat": {"bold": True}},
+                )
+                return ws
+            except Exception as e:
+                print(f"❌ Sheets: не смог создать '{SHEET_HOTELS_DESC}': {e}")
+                return None
+
+    @staticmethod
+    def _norm(s: str) -> str:
+        return str(s or "").strip().lower()
+
+    def get_hotel_description(self, hotel_name: str, country: str = "") -> str:
+        """Возвращает закешированное описание отеля или пустую строку."""
+        ws = self._get_hotels_desc_ws()
+        if not ws:
+            return ""
+        target_hotel = self._norm(hotel_name)
+        target_country = self._norm(country)
+        try:
+            for row in ws.get_all_records():
+                if (self._norm(row.get("Отель")) == target_hotel and
+                        self._norm(row.get("Страна")) == target_country):
+                    return str(row.get("Описание", "")).strip()
+        except Exception as e:
+            print(f"❌ Sheets: ошибка чтения описаний отелей: {e}")
+        return ""
+
+    def set_hotel_description(self, hotel_name: str, country: str,
+                               description: str) -> None:
+        """Записывает или обновляет описание отеля в кэше."""
+        ws = self._get_hotels_desc_ws()
+        if not ws:
+            return
+        from datetime import datetime
+        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        target_hotel = self._norm(hotel_name)
+        target_country = self._norm(country)
+        try:
+            rows = ws.get_all_records()
+            for i, row in enumerate(rows, start=2):
+                if (self._norm(row.get("Отель")) == target_hotel and
+                        self._norm(row.get("Страна")) == target_country):
+                    ws.update_cell(i, 3, description)
+                    ws.update_cell(i, 4, now)
+                    return
+            ws.append_row([hotel_name, country, description, now])
+        except Exception as e:
+            print(f"❌ Sheets: ошибка записи описания отеля: {e}")
 
     def get_news_sources(self) -> list[str]:
         """

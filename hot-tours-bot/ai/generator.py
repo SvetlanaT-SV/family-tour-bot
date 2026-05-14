@@ -579,15 +579,49 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
     country_to = _country_to(country)   # "в Турцию" / "на Мальдивы"
     country_in = _country_in(country)   # "в Турции" / "на Мальдивах"
 
-    # Особенности отеля — заполняются вручную в Google Sheets
+    # Особенности отеля.
+    # Источники по приоритету:
+    #   1. Ручной столбец "Особенности отеля" в Sheets (если заполнен — берём как есть)
+    #   2. Кэш в листе "Описания отелей" (если этот отель ранее уже искали)
+    #   3. Скрапинг tophotels.ru на лету + запись в кэш (один раз на отель)
     features = str(data.get("Особенности отеля", "") or "").strip()
+    features_source = "ручной (Особенности отеля)" if features else None
+
+    if not features and hotel:
+        try:
+            from sheets.client import SheetsClient
+            from config import Config
+            if Config.GOOGLE_CREDENTIALS_FILE and Config.GOOGLE_SHEET_ID:
+                _sheets = SheetsClient(Config.GOOGLE_CREDENTIALS_FILE, Config.GOOGLE_SHEET_ID)
+                cached = _sheets.get_hotel_description(hotel, country)
+                if cached:
+                    features = cached
+                    features_source = "кэш Sheets"
+                else:
+                    # Кэша нет — пробуем скрапинг
+                    try:
+                        from hotels.scraper import TopHotelsScraper
+                        scraped = TopHotelsScraper().get_features(hotel, country)
+                        if scraped:
+                            features = scraped
+                            features_source = "tophotels.ru (свежий)"
+                            # Сохраняем в кэш чтобы не дёргать повторно
+                            try:
+                                _sheets.set_hotel_description(hotel, country, scraped)
+                            except Exception as cache_err:
+                                logger.warning(f"Не смог закэшировать описание отеля: {cache_err}")
+                    except Exception as scrape_err:
+                        logger.warning(f"TopHotels scrape error для {hotel!r}: {scrape_err}")
+        except Exception as e:
+            logger.warning(f"Не удалось обогатить особенности отеля {hotel!r}: {e}")
+
     real_hotel_block = ""
     if features:
         real_hotel_block = (
-            "\n\nРЕАЛЬНЫЕ ОСОБЕННОСТИ ОТЕЛЯ (от агентства — это правда, можно упоминать):\n"
+            "\n\nРЕАЛЬНЫЕ ОСОБЕННОСТИ ОТЕЛЯ (это правда, можно упоминать):\n"
             f"{features}\n"
         )
-        logger.info(f"Особенности отеля переданы в промпт: {features[:80]}")
+        logger.info(f"Особенности отеля переданы в промпт ({features_source}): {features[:80]}")
 
     # Единый промпт для любого ИИ (Claude / GigaChat)
     ai_prompt = f"""Ты — копирайтер турагентства Pegas Touristik (Уфа, опыт 12+ лет). Напиши продающий пост для Telegram с HTML-разметкой.
