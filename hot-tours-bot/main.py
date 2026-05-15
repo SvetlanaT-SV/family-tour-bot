@@ -624,6 +624,16 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
             except Exception:
                 pass
 
+        # Если у исходного поста не было картинки — генерируем заглушку,
+        # чтобы пост в канале не выглядел голым текстом.
+        if not photo_content:
+            try:
+                from image_overlay.news_placeholder import make_news_placeholder
+                photo_content = make_news_placeholder()
+                logger.info(f"Новости: использую placeholder для поста без фото ({len(photo_content)} байт)")
+            except Exception as e:
+                logger.warning(f"Новости: не смог сгенерировать placeholder: {e}")
+
         for admin_id in Config.TELEGRAM_ADMIN_IDS:
             try:
                 if photo_content:
