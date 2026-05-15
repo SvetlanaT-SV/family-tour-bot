@@ -58,20 +58,35 @@ def _measure(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int]:
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 
+def _fit_font(draw, text: str, max_width: int,
+               start_size: int = 96, min_size: int = 48) -> "ImageFont.ImageFont":
+    """Возвращает шрифт максимально большого размера при котором текст
+    укладывается в max_width. Уменьшает шаг 4px пока не влезет."""
+    size = start_size
+    while size > min_size:
+        f = _load_font(size)
+        w, _ = _measure(draw, text, f)
+        if w <= max_width:
+            return f
+        size -= 4
+    return _load_font(min_size)
+
+
 def make_news_placeholder(category: Optional[str] = None) -> bytes:
     """
-    Возвращает PNG-байты баннера 1080×540 со случайным градиентом и
-    надписью. Если задана `category` — выводит её на втором ряду
-    (например, "Туризм", "Визы", "Авиа").
+    Возвращает JPEG-байты баннера 1080×540 со случайным градиентом и
+    надписью. Если задана `category` — выводит её на втором ряду.
     """
     W, H = 1080, 540
+    SIDE_PAD = 90  # отступ от краёв слева/справа
+    USABLE_WIDTH = W - 2 * SIDE_PAD
+
     bg_top, bg_bot = random.choice(_BG_PALETTES)
 
     img = Image.new("RGB", (W, H), bg_top)
     draw = ImageDraw.Draw(img)
 
-    # Вертикальный градиент. Рисуем не построчно, а блоками по 10px —
-    # быстрее и визуально не отличается.
+    # Вертикальный градиент (блоками по 8px — быстрее)
     step = 8
     for y in range(0, H, step):
         ratio = y / H
@@ -80,25 +95,25 @@ def make_news_placeholder(category: Optional[str] = None) -> bytes:
         b = int(bg_top[2] + (bg_bot[2] - bg_top[2]) * ratio)
         draw.rectangle([(0, y), (W, y + step)], fill=(r, g, b))
 
-    # Заголовок
+    # Заголовок — автоподгон шрифта если не влезает
     title = "НОВОСТИ ТУРИЗМА"
-    title_font = _load_font(96)
+    title_font = _fit_font(draw, title, USABLE_WIDTH, start_size=96, min_size=52)
     tw, th = _measure(draw, title, title_font)
     title_y = (H - th) // 2 - 40
 
     # Тень под текстом для контраста
     draw.text(((W - tw) // 2 + 4, title_y + 4), title,
-              fill=(0, 0, 0, 100), font=title_font)
+              fill=(0, 0, 0, 120), font=title_font)
     draw.text(((W - tw) // 2, title_y), title,
               fill="white", font=title_font)
 
-    # Подзаголовок (категория или название агентства)
+    # Подзаголовок (категория или название агентства) — тоже с автоподгоном
     sub = category.upper() if category else "Pegas Touristik"
-    sub_font = _load_font(42)
+    sub_font = _fit_font(draw, sub, USABLE_WIDTH, start_size=42, min_size=28)
     sw, sh = _measure(draw, sub, sub_font)
     sub_y = title_y + th + 30
     draw.text(((W - sw) // 2, sub_y), sub,
-              fill=(255, 255, 255, 200), font=sub_font)
+              fill=(255, 255, 255, 220), font=sub_font)
 
     # Декоративная горизонтальная линия под подзаголовком
     line_w = 200

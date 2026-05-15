@@ -135,5 +135,9 @@ def fetch_channel_posts(channel: str, since_dt: Optional[datetime] = None,
     posts.sort(key=lambda p: p["date"], reverse=True)
     if not since_dt:
         posts = posts[:limit]
-    logger.info(f"Новости: канал @{username} — {len(posts)} постов после фильтра")
+    with_photo = sum(1 for p in posts if p.get("photo_url"))
+    logger.info(
+        f"Новости: канал @{username} — {len(posts)} постов "
+        f"({with_photo} с фото, {len(posts) - with_photo} без)"
+    )
     return posts
