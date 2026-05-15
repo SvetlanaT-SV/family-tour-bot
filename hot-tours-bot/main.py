@@ -567,15 +567,30 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
         except Exception as e:
             logger.warning(f"Новости: канал {ch}: {e}")
 
+    async def _notify_admins(text: str):
+        """Шлёт служебное сообщение всем админам — для feedback по /news."""
+        if not context or not getattr(context, "bot", None):
+            return
+        for admin_id in Config.TELEGRAM_ADMIN_IDS:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Не смог уведомить админа {admin_id}: {e}")
+
     if not all_posts:
         logger.info("Новости: за сутки ничего не нашёл")
         sheets.set_meta("news_last_run_msk", datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d"))
+        await _notify_admins("ℹ️ Новости: за последние сутки в каналах-источниках ничего не нашлось.")
         return
 
     logger.info(f"Новости: всего собрано {len(all_posts)} постов, отправляю в GigaChat")
     rewrites = select_and_rewrite(all_posts, top_n=3)
     if not rewrites:
         logger.warning("Новости: GigaChat не вернул переписанных постов")
+        await _notify_admins(
+            f"⚠️ Новости: собрал {len(all_posts)} постов из источников, но GigaChat не вернул "
+            f"переписанные. Скорее всего сработал фильтр Сбера. Проверь логи: <code>docker logs bot --tail 100</code>"
+        )
         return
 
     # Помечаем что сегодня сбор уже прошёл — чтобы при перезапуске не дублировать
