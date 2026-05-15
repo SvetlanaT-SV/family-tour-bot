@@ -129,6 +129,46 @@ def _save_scheduled(posts: list) -> None:
 SCHEDULED_POSTS: list = _load_scheduled()
 
 
+def _download_image_with_proxy(url: str, item_label: str = "") -> bytes | None:
+    """
+    Скачивает фото. Сначала пробует напрямую с {url}; если не выходит
+    (Telegram CDN telesco.pe иногда блокирован с российских IP) —
+    проксирует через бесплатный публичный image-proxy weserv.nl.
+
+    Возвращает байты JPEG/PNG или None если оба источника недоступны.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120"}
+    prefix = f"{item_label}: " if item_label else ""
+
+    # Попытка 1 — прямое скачивание
+    try:
+        logger.info(f"{prefix}пробую скачать фото напрямую: {url[:120]}")
+        resp = _requests.get(url, timeout=10, headers=headers)
+        if resp.status_code == 200 and resp.content:
+            logger.info(f"{prefix}скачано напрямую, {len(resp.content)} байт")
+            return resp.content
+        logger.info(f"{prefix}прямое скачивание вернуло HTTP {resp.status_code}, пробую прокси")
+    except Exception as e:
+        logger.info(f"{prefix}прямое скачивание не удалось ({type(e).__name__}), пробую прокси")
+
+    # Попытка 2 — через бесплатный image-proxy weserv.nl
+    # weserv ожидает URL без схемы в параметре ?url=
+    from urllib.parse import quote
+    bare_url = url.replace("https://", "", 1).replace("http://", "", 1)
+    proxy = f"https://images.weserv.nl/?url={quote(bare_url, safe='/')}"
+    try:
+        logger.info(f"{prefix}пробую через weserv.nl")
+        resp = _requests.get(proxy, timeout=15, headers=headers)
+        if resp.status_code == 200 and resp.content:
+            logger.info(f"{prefix}скачано через weserv.nl, {len(resp.content)} байт")
+            return resp.content
+        logger.warning(f"{prefix}weserv.nl вернул HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"{prefix}weserv.nl не сработал: {type(e).__name__}: {e}")
+
+    return None
+
+
 async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE = None):
     """
     Каждую минуту публикует запланированные посты у которых пришло время.
@@ -637,22 +677,7 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
 
         photo_content = None
         if photo_url:
-            logger.info(f"Новости #{i}: пробую скачать фото источника: {photo_url[:120]}")
-            try:
-                resp = _requests.get(
-                    photo_url, timeout=10,
-                    headers={"User-Agent": "Mozilla/5.0"},
-                )
-                if resp.status_code == 200 and resp.content:
-                    photo_content = resp.content
-                    logger.info(f"Новости #{i}: фото из источника скачано, {len(photo_content)} байт")
-                else:
-                    logger.warning(
-                        f"Новости #{i}: фото вернуло HTTP {resp.status_code} "
-                        f"({len(resp.content) if resp.content else 0} байт)"
-                    )
-            except Exception as e:
-                logger.warning(f"Новости #{i}: не смог скачать фото — {e}")
+            photo_content = _download_image_with_proxy(photo_url, item_label=f"Новости #{i}")
         else:
             logger.info(f"Новости #{i}: в источнике не было фото — будет заглушка")
 
