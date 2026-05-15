@@ -92,8 +92,8 @@ def make_news_placeholder(category: Optional[str] = None) -> bytes:
     draw.text(((W - tw) // 2, title_y), title,
               fill="white", font=title_font)
 
-    # Подзаголовок (категория или общий)
-    sub = category.upper() if category else "Family Tour"
+    # Подзаголовок (категория или название агентства)
+    sub = category.upper() if category else "Pegas Touristik"
     sub_font = _load_font(42)
     sw, sh = _measure(draw, sub, sub_font)
     sub_y = title_y + th + 30
