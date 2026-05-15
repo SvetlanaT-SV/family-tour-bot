@@ -587,9 +587,14 @@ async def collect_news_job(context: ContextTypes.DEFAULT_TYPE = None):
     rewrites = select_and_rewrite(all_posts, top_n=3)
     if not rewrites:
         logger.warning("Новости: GigaChat не вернул переписанных постов")
+        # Помечаем как «попытка сделана» — иначе catchup при каждом перезапуске
+        # будет дёргать GigaChat снова и снова с тем же результатом.
+        sheets.set_meta("news_last_run_msk", datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d"))
         await _notify_admins(
             f"⚠️ Новости: собрал {len(all_posts)} постов из источников, но GigaChat не вернул "
-            f"переписанные. Скорее всего сработал фильтр Сбера. Проверь логи: <code>docker logs bot --tail 100</code>"
+            f"переписанные. Скорее всего сработал фильтр Сбера (в постах источников могло "
+            f"быть политическое/чувствительное содержимое). Завтрашний сбор пройдёт снова "
+            f"автоматически в 08:00 МСК."
         )
         return
 

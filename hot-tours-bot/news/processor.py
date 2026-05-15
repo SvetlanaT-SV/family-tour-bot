@@ -78,6 +78,29 @@ def _build_prompt(posts: list[dict], top_n: int = 3) -> str:
 Ровно {top_n} элементов в массиве. Текст каждого поста — 400-700 символов."""
 
 
+def _is_politically_sensitive(text: str) -> bool:
+    """
+    Фильтр постов которые могут триггернуть защитный фильтр GigaChat.
+    Это политические темы — фильтр Сбера от них отшатывается.
+    Туризм-релевантные «санкции», «визы», «закрытые границы» оставляем —
+    они полезны нашему подписчику и обычно проходят.
+    """
+    if not text:
+        return False
+    t = text.lower()
+    # Жёсткие политические триггеры — посты с ними почти гарантированно отказ.
+    hard_triggers = (
+        "сво ", "спецоперация", "военный конфликт", "военная операция",
+        "мобилизация", "военнообязан", "военкомат",
+        "путин", "зеленский", "байден", "трамп",
+        "кремль", "белый дом", "минобороны",
+        "теракт", "взрыв в", "обстрел",
+        "митинг", "протест",
+        "лнр", "днр", "лднр", "донбасс",
+    )
+    return any(trigger in t for trigger in hard_triggers)
+
+
 def select_and_rewrite(posts: list[dict], top_n: int = 3) -> list[dict]:
     """
     Возвращает список переписанных постов с полями: title, text, source_post (исходный dict).
@@ -87,6 +110,24 @@ def select_and_rewrite(posts: list[dict], top_n: int = 3) -> list[dict]:
         return []
     if not os.getenv("GIGACHAT_AUTH_KEY", "").strip():
         logger.warning("Новости: GIGACHAT_AUTH_KEY не задан, пропускаю обработку")
+        return []
+
+    # 1. Пре-фильтр: убираем политически чувствительные посты — фильтр Сбера от них
+    #    отказывается обрабатывать весь батч.
+    before = len(posts)
+    posts = [p for p in posts if not _is_politically_sensitive(p.get("text", ""))]
+    dropped = before - len(posts)
+    if dropped:
+        logger.info(f"Новости: пре-фильтр отбросил {dropped} политически чувствительных постов")
+
+    # 2. Ограничиваем размер батча — большой батч повышает шанс попасть на проблемный пост.
+    #    Берём свежие посты + сортируем по просмотрам, оставляем топ-20.
+    if len(posts) > 20:
+        posts = sorted(posts, key=lambda p: p.get("views", 0), reverse=True)[:20]
+        logger.info(f"Новости: батч обрезан до топ-20 по просмотрам")
+
+    if not posts:
+        logger.info("Новости: после фильтрации не осталось постов")
         return []
 
     try:
