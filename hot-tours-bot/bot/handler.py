@@ -500,13 +500,22 @@ async def _handle_approval(update: Update,
 
         if not post_text:
             raw = msg.caption_html or msg.text_html or ""
+            # Префиксы превью — список вариантов для туров и новостей
             for p in [
                 "📋 <b>НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:</b>\n\n",
                 "📋 НОВЫЙ ГОРЯЩИЙ ТУР — на одобрение:\n\n",
+                "📰 <b>НОВОСТЬ — на одобрение:</b>",
+                "📰 НОВОСТЬ — на одобрение:",
             ]:
                 if p in raw:
                     raw = raw.split(p, 1)[1]
                     break
+            # У новостей после префикса может идти строка "🔗 Источник: ..." —
+            # её тоже срезаем (она служебная, не должна попасть в публикуемый пост)
+            raw = re.sub(
+                r"^\s*🔗\s*Источник:.*?(?:\n|$)", "",
+                raw, count=1, flags=re.MULTILINE,
+            )
             post_text = raw.strip()
             logger.info(f"PENDING_POSTS пуст — текст восстановлен ({len(post_text)} символов)")
 

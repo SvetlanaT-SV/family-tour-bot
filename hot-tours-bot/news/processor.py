@@ -61,7 +61,7 @@ def _build_prompt(posts: list[dict], top_n: int = 3) -> str:
   • эмоция: «Наконец-то! Прямые рейсы из Уфы вернулись»
   • прямое обращение: «Если летите в августе — обязательно прочтите»
 — Заголовок 5-12 слов, не больше. Эмодзи в самом начале строки (1 штука).
-— После заголовка пустая строка, дальше 3-5 коротких абзацев или пунктов с фактами.
+— После заголовка пустая строка, дальше 2-4 абзаца **через пустую строку** между ними. Каждый абзац — 2-3 предложения, НЕ длиннее 5 строк визуально. НЕ слепляй всё в один длинный текст-стену.
 — Если уместно — выделяй <b>ключевые цифры/даты/названия стран</b> жирным внутри текста.
 — В конце:
   📩 Написать нам: <b>@hottourpegas_bot</b>
@@ -122,6 +122,8 @@ def select_and_rewrite(posts: list[dict], top_n: int = 3) -> list[dict]:
             # Гарантируем что пост начинается с <b>заголовка</b>.
             # GigaChat иногда забывает обернуть первую строку в <b>.
             text = _ensure_headline(text, title)
+            # Разбиваем длинные абзацы на части по 3-5 строк, чтобы пост читался.
+            text = _split_long_paragraphs(text, max_sentences=3)
 
             result.append({
                 "title":       title,
@@ -137,9 +139,19 @@ def _ensure_headline(text: str, title: str) -> str:
     """
     Если первая непустая строка не обёрнута в <b>...</b>, добавляем
     <b>title</b> сверху (или оборачиваем первую строку, если title пустой).
+    Также конвертирует markdown **жирный** → <b>жирный</b> в начале текста.
     """
     if not text:
         return text
+
+    # Markdown bold в начале → HTML bold (модель иногда смешивает форматы)
+    text = re.sub(
+        r"^(\s*)\*\*([^\n*]{1,200}?)\*\*",
+        r"\1<b>\2</b>",
+        text,
+        count=1,
+    )
+
     stripped = text.lstrip()
     # Уже есть жирный заголовок в начале — ничего не делаем
     if stripped.startswith("<b>") and "</b>" in stripped[:200]:
@@ -164,3 +176,45 @@ def _ensure_headline(text: str, title: str) -> str:
     # Title пустой — оборачиваем первую строку в <b>
     lines[first_idx] = f"<b>{first}</b>"
     return "\n".join(lines)
+
+
+def _split_long_paragraphs(text: str, max_sentences: int = 3) -> str:
+    """
+    Разбивает длинные абзацы на части по `max_sentences` предложений
+    (2-3 предложения — это примерно 3-5 строк визуально в Telegram).
+    Существующие абзацы (разделённые \\n\\n) сохраняются. Короткие — не трогаем.
+
+    Заголовок (первая строка с <b>...</b>) не считается за абзац и оставляется как есть.
+    """
+    if not text:
+        return text
+
+    paragraphs = text.split("\n\n")
+    out: list[str] = []
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        # Заголовок и короткие списки — не трогаем
+        if para.startswith("<b>") and "</b>" in para[:200] and "\n" not in para:
+            out.append(para)
+            continue
+
+        # Делим на предложения (по точке/восклицанию/вопросу + пробел/перенос)
+        sentences = re.split(r"(?<=[.!?…])\s+", para)
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        if len(sentences) <= max_sentences:
+            out.append(para)
+            continue
+
+        # Разбиваем на чанки по max_sentences
+        chunks = []
+        for i in range(0, len(sentences), max_sentences):
+            chunk = " ".join(sentences[i:i + max_sentences])
+            chunks.append(chunk)
+        out.append("\n\n".join(chunks))
+
+    return "\n\n".join(out)
