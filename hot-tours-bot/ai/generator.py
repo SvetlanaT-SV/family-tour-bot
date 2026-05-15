@@ -393,11 +393,16 @@ def _ensure_details_block(text: str, hotel: str, price_str: str, meal_ru: str,
     lines = text.split("\n")
 
     # 1) Жирность имени отеля: «🏨 Blue Fish 4*» → «🏨 <b>Blue Fish</b> 4*»
+    #    Не полагаемся на проверку «есть ли <b>» в строке — модель могла
+    #    обернуть только звёзды или часть имени. Снимаем все теги и
+    #    оборачиваем чистое имя.
     for i, line in enumerate(lines):
-        if line.strip().startswith("🏨") and "<b>" not in line:
-            # Заменяем подстроку с именем отеля на <b>имя</b>
-            if hotel in line:
-                lines[i] = line.replace(hotel, f"<b>{hotel}</b>", 1)
+        if line.strip().startswith("🏨"):
+            cleaned = re.sub(r"</?b\s*>", "", line, flags=re.IGNORECASE)
+            if hotel in cleaned:
+                lines[i] = cleaned.replace(hotel, f"<b>{hotel}</b>", 1)
+            else:
+                lines[i] = cleaned
             break
 
     # 2) Проверяем строку 💰 Цена — если её нет, вставляем после 🍽 Питание
@@ -416,8 +421,9 @@ def _ensure_details_block(text: str, hotel: str, price_str: str, meal_ru: str,
 
 def _ensure_first_line_bold(text: str) -> str:
     """
-    Гарантирует что первая непустая строка поста обёрнута в <b>...</b>.
-    Если модель забыла теги — оборачиваем сами. Если уже обёрнута — не трогаем.
+    Гарантирует что первая непустая строка поста ЦЕЛИКОМ обёрнута в <b>...</b>.
+    Если модель обернула только часть строки (например цену) — снимаем
+    внутренние теги и оборачиваем всю строку.
     """
     if not text:
         return text
@@ -426,12 +432,13 @@ def _ensure_first_line_bold(text: str) -> str:
     if first_idx == -1:
         return text
     first = lines[first_idx].strip()
-    # Если строка уже содержит <b>...</b> где-нибудь в первых 200 символах —
-    # считаем что заголовок уже выделен жирным.
-    if "<b>" in first[:200]:
+    # Если строка УЖЕ начинается на <b> и заканчивается на </b> —
+    # значит весь заголовок целиком жирный, не трогаем.
+    if first.startswith("<b>") and first.endswith("</b>") and first.count("<b>") == 1:
         return text
-    # Иначе оборачиваем всю первую строку
-    lines[first_idx] = f"<b>{first}</b>"
+    # Иначе: убираем все внутренние <b>/</b> и оборачиваем ВСЮ строку
+    cleaned = re.sub(r"</?b\s*>", "", first, flags=re.IGNORECASE)
+    lines[first_idx] = f"<b>{cleaned}</b>"
     return "\n".join(lines)
 
 
