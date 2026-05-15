@@ -525,12 +525,14 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                                          published_at=datetime.now().strftime("%d.%m.%Y %H:%M"))
                 logger.info(f"  📨 Отправлено на одобрение: {name}")
             else:
+                # Автопилот для туров — публикуем в TOURS-каналы (новый TG + новый MAX),
+                # VK один общий.
                 tg = TelegramPublisher(
                     token=Config.TELEGRAM_BOT_TOKEN,
-                    channel_id=Config.TELEGRAM_CHANNEL_ID,
+                    channel_id=Config.TELEGRAM_TOURS_CHANNEL_ID,
                     admin_id=Config.TELEGRAM_ADMIN_IDS,
                 )
-                if Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHANNEL_ID:
+                if Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_TOURS_CHANNEL_ID:
                     tg.publish(text, photo_url)
 
                 if Config.VK_TOKEN and Config.VK_GROUP_ID:
@@ -541,8 +543,8 @@ async def publish_from_sheets(context: ContextTypes.DEFAULT_TYPE = None):
                     )
                     vk.publish(text, photo_url)
 
-                if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
-                    max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
+                if Config.MAX_TOKEN and Config.MAX_TOURS_CHAT_ID:
+                    max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_TOURS_CHAT_ID)
                     max_pub.publish(text, photo_url)
 
                 sheets.mark_tour_status(

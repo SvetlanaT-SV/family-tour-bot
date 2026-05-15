@@ -346,8 +346,32 @@ async def publish_to_channels(bot, post_text: str,
     Публикует пост в Telegram-канал, ВК и MAX.
     Если заданы overlay_* — накладывает текст на фото.
     Возвращает (успех, сообщение_о_статусе).
+
+    Маршрутизация каналов по типу поста (определяется по префиксу tour_id):
+    - sheets_<row>     — ГОРЯЩИЙ ТУР     → новый TG-канал + новый MAX
+    - news_<ts>_<i>    — НОВОСТЬ         → старый TG-канал + старый MAX
+    - tv_<...>         — тур из Tourvisor → как горящий тур (новые каналы)
+    - пусто или иное   → старые каналы (бэк-совместимость)
+
+    VK один — туда идёт всё.
     """
     from io import BytesIO
+
+    # Определяем тип поста и выбираем целевой канал в Telegram/MAX
+    is_news = tour_id.startswith("news_") if tour_id else False
+    if is_news:
+        tg_channel = Config.TELEGRAM_CHANNEL_ID       # старый, для новостей
+        max_chat   = Config.MAX_CHAT_ID                # старый MAX
+        post_kind  = "новость"
+    else:
+        tg_channel = Config.TELEGRAM_TOURS_CHANNEL_ID  # новый, для туров (fallback: старый)
+        max_chat   = Config.MAX_TOURS_CHAT_ID           # новый MAX (fallback: старый)
+        post_kind  = "тур"
+
+    logger.info(
+        f"publish_to_channels: тип={post_kind}, "
+        f"TG→{tg_channel}, MAX→{max_chat}, tour_id={tour_id!r}"
+    )
 
     tg_photo_content = None
     if photo_bytes:
@@ -378,14 +402,14 @@ async def publish_to_channels(bot, post_text: str,
     try:
         if tg_photo_content:
             await bot.send_photo(
-                chat_id=Config.TELEGRAM_CHANNEL_ID,
+                chat_id=tg_channel,
                 photo=BytesIO(tg_photo_content),
                 caption=post_text,
                 parse_mode="HTML",
             )
         else:
             await bot.send_message(
-                chat_id=Config.TELEGRAM_CHANNEL_ID,
+                chat_id=tg_channel,
                 text=post_text,
                 parse_mode="HTML",
             )
@@ -416,11 +440,11 @@ async def publish_to_channels(bot, post_text: str,
 
         logger.info(
             f"MAX: попытка публикации — token={'есть' if Config.MAX_TOKEN else 'НЕТ'}, "
-            f"chat_id={Config.MAX_CHAT_ID}"
+            f"chat_id={max_chat} ({post_kind})"
         )
-        if Config.MAX_TOKEN and Config.MAX_CHAT_ID:
+        if Config.MAX_TOKEN and max_chat:
             try:
-                max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=Config.MAX_CHAT_ID)
+                max_pub = MAXPublisher(token=Config.MAX_TOKEN, chat_id=max_chat)
                 max_pub.publish(post_text, photo_url=photo_url or None, photo_bytes=tg_photo_content)
             except Exception as max_err:
                 logger.warning(f"⚠️ MAX публикация не удалась: {max_err}")

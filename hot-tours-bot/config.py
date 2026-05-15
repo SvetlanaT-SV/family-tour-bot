@@ -27,20 +27,29 @@ class Config:
     TOURVISOR_PASSWORD = os.getenv("TOURVISOR_PASSWORD", "")
 
     # ── Telegram ───────────────────────────────────────────────
-    TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "")
+    # TELEGRAM_CHANNEL_ID       — канал для НОВОСТЕЙ (старый family_tour_channel)
+    # TELEGRAM_TOURS_CHANNEL_ID — канал для ГОРЯЩИХ ТУРОВ (новый, обязательно)
+    # Если TOURS не задан — все посты идут в TELEGRAM_CHANNEL_ID (как раньше).
+    TELEGRAM_BOT_TOKEN        = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHANNEL_ID       = os.getenv("TELEGRAM_CHANNEL_ID", "")
+    TELEGRAM_TOURS_CHANNEL_ID = os.getenv("TELEGRAM_TOURS_CHANNEL_ID", "") or os.getenv("TELEGRAM_CHANNEL_ID", "")
     # TELEGRAM_ADMIN_ID может содержать несколько ID через запятую: "418012639,999999999"
     TELEGRAM_ADMIN_IDS = [int(x.strip()) for x in os.getenv("TELEGRAM_ADMIN_ID", "0").split(",") if x.strip().lstrip("-").isdigit()]
     TELEGRAM_ADMIN_ID  = TELEGRAM_ADMIN_IDS[0] if TELEGRAM_ADMIN_IDS else 0
 
     # ── ВКонтакте ──────────────────────────────────────────────
+    # У VK один канал — публикуется и туры, и новости.
     VK_TOKEN      = os.getenv("VK_TOKEN", "")       # токен группы — для публикации постов
     VK_USER_TOKEN = os.getenv("VK_USER_TOKEN", "")  # токен пользователя — для загрузки фото
     VK_GROUP_ID   = int(os.getenv("VK_GROUP_ID", "0"))
 
     # ── MAX (мессенджер от VK) ─────────────────────────────────
-    MAX_TOKEN   = os.getenv("MAX_TOKEN", "").strip()
-    MAX_CHAT_ID = int(os.getenv("MAX_CHAT_ID", "0"))
+    # MAX_CHAT_ID       — канал для НОВОСТЕЙ (старый)
+    # MAX_TOURS_CHAT_ID — канал для ГОРЯЩИХ ТУРОВ (новый, обязательно)
+    # Если TOURS не задан — все посты идут в MAX_CHAT_ID.
+    MAX_TOKEN         = os.getenv("MAX_TOKEN", "").strip()
+    MAX_CHAT_ID       = int(os.getenv("MAX_CHAT_ID", "0"))
+    MAX_TOURS_CHAT_ID = int(os.getenv("MAX_TOURS_CHAT_ID", "0") or os.getenv("MAX_CHAT_ID", "0"))
 
     # ── Claude API ─────────────────────────────────────────────
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
