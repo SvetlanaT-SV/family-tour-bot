@@ -367,12 +367,7 @@ def _sanitize_html_for_telegram(text: str) -> str:
     # Убираем тройные и более переводов строк
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.strip()
-    # Финальные программные правки.
-    # ВАЖНО: агрессивная чистка отключена — она ломала грамматику ("с в отеле"
-    # из-за вырезания прилагательного посреди фразы). Пусть GigaChat пишет
-    # как умеет — корректность важнее «идеальной» лексики.
-    #
-    # Что оставляем — только безопасные правки:
+    # Финальные программные правки — только безопасные:
     # 1) Гарантируем что первая непустая строка обёрнута в <b>
     text = _ensure_first_line_bold(text)
     # 2) Дубль-строка между заголовком и деталями
@@ -382,6 +377,41 @@ def _sanitize_html_for_telegram(text: str) -> str:
     # 4) Пустая строка перед хэштегами
     text = re.sub(r"([^\n])\n(#[A-Za-zА-Яа-яЁё])", r"\1\n\n\2", text)
     return text
+
+
+def _ensure_details_block(text: str, hotel: str, price_str: str, meal_ru: str,
+                           stars_str: str = "") -> str:
+    """
+    Гарантирует что в блоке деталей все обязательные строки и что имя отеля
+    обёрнуто в <b>...</b>. Вставляет пропущенные строки и добавляет жирность
+    к названию отеля.
+
+    Идемпотентно — повторный вызов ничего не меняет.
+    """
+    if not text or not hotel:
+        return text
+    lines = text.split("\n")
+
+    # 1) Жирность имени отеля: «🏨 Blue Fish 4*» → «🏨 <b>Blue Fish</b> 4*»
+    for i, line in enumerate(lines):
+        if line.strip().startswith("🏨") and "<b>" not in line:
+            # Заменяем подстроку с именем отеля на <b>имя</b>
+            if hotel in line:
+                lines[i] = line.replace(hotel, f"<b>{hotel}</b>", 1)
+            break
+
+    # 2) Проверяем строку 💰 Цена — если её нет, вставляем после 🍽 Питание
+    has_price_line = any(ln.strip().startswith("💰") for ln in lines)
+    if not has_price_line and price_str and price_str != "уточняйте":
+        # Находим индекс строки с 🍽 Питание
+        meal_idx = next(
+            (i for i, ln in enumerate(lines) if ln.strip().startswith("🍽")),
+            None,
+        )
+        if meal_idx is not None:
+            lines.insert(meal_idx + 1, f"💰 Цена: от <b>{price_str}/чел</b>")
+
+    return "\n".join(lines)
 
 
 def _ensure_first_line_bold(text: str) -> str:
@@ -1041,6 +1071,7 @@ HTML: разрешён ТОЛЬКО тег <b>...</b>. НЕ используй <
                 logger.info(f"GigaChat вернул пост ({len(post)} символов)")
                 post = _sanitize_html_for_telegram(post)
                 post = _post_substitute_city(post, city_from, city_gen)
+                post = _ensure_details_block(post, hotel, price_str, meal_ru, stars_str)
                 if link_line:
                     post += link_line
                 return post
@@ -1063,6 +1094,7 @@ HTML: разрешён ТОЛЬКО тег <b>...</b>. НЕ используй <
         post = msg.content[0].text.strip()
         post = _sanitize_html_for_telegram(post)
         post = _post_substitute_city(post, city_from, city_gen)
+        post = _ensure_details_block(post, hotel, price_str, meal_ru, stars_str)
         if link_line:
             post += link_line
         return post
