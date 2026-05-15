@@ -377,11 +377,41 @@ def _sanitize_html_for_telegram(text: str) -> str:
     # 4) Стилистика: убираем точки/многоточия в конце строк
     #    (восклицательные и вопросительные знаки оставляем)
     text = re.sub(r"\.+[ \t]*$", "", text, flags=re.MULTILINE)
-    # 5) Перед строкой с хэштегами обязательно пустая строка
-    #    Находим первую строку начинающуюся с #<буква> и вставляем \n перед ней,
-    #    если её ещё нет.
+    # 5) Удаляем «оборванные» ✅-строки (без знака препинания в конце +
+    #    без следующей строки с ✅ или контактом). Это спасает от
+    #    обрезов вида «...а номера отеля обеспечат» когда модель упёрлась
+    #    в max_tokens.
+    text = _strip_broken_trailing_advantage(text)
+    # 6) Перед строкой с хэштегами обязательно пустая строка
     text = re.sub(r"([^\n])\n(#[A-Za-zА-Яа-яЁё])", r"\1\n\n\2", text)
     return text
+
+
+def _strip_broken_trailing_advantage(text: str) -> str:
+    """
+    Если последняя строка с ✅ выглядит как незаконченное предложение
+    (не заканчивается на ., !, ?, …, цифре или закрывающей скобке/кавычке),
+    эта строка скорее всего обрезана из-за лимита токенов модели.
+    Удаляем её — лучше один ✅ чем оборванный текст.
+    """
+    if "✅" not in text:
+        return text
+    lines = text.split("\n")
+    # Найдём индекс ПОСЛЕДНЕЙ строки с ✅
+    last_check_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("✅"):
+            last_check_idx = i
+    if last_check_idx is None:
+        return text
+    last_line = lines[last_check_idx].rstrip()
+    # Корректное завершение — последний символ из этого набора
+    if last_line and last_line[-1] in ".!?…»\")0123456789":
+        return text
+    # Незавершённое предложение — удаляем строку
+    logger.warning(f"Обрезанный ✅-пункт удалён: {last_line[:60]!r}")
+    del lines[last_check_idx]
+    return "\n".join(lines)
 
 
 def _strip_intro_between_headline_and_details(text: str) -> str:
@@ -982,11 +1012,12 @@ def generate_post_from_dict(data: dict, api_key: str = "") -> str:
    • «🏖 Прекрасный отдых в Турции» — нет цифры, общо
    • «✨ Незабываемое путешествие на море» — штамп
 
-2. Блок деталей строкой за строкой:
+2. Блок деталей — ВСЕ ЧЕТЫРЕ строки обязательны, даже если цифры уже есть в заголовке:
    ✈️ Вылет: {date} из {city_gen} ({nights_str})
    🏨 <b>{hotel}</b> {stars_str}
    🍽 Питание: {meal_ru}
    💰 Цена: от <b>{price_str}/чел</b>
+   ⛔ НЕ пропускай ни одну из этих 4 строк. Даже если цена есть в заголовке — повтори её здесь. Это часть стандартного шаблона.
 
 3. ОПИСАНИЕ — РОВНО ОДНО предложение, не более 20 слов. После него — пустая строка и сразу ✅✅. БЕЗ второго абзаца. БЕЗ продолжений.
    — Структура: «[Где отель находится]. [1-2 факта важных туристу: линия моря / расстояние / питание / фишка].»
@@ -1045,7 +1076,7 @@ HTML: разрешён ТОЛЬКО тег <b>...</b>. НЕ используй <
         try:
             from ai.gigachat import generate as giga_generate
             logger.info("Пробую сгенерировать пост через GigaChat...")
-            post = giga_generate(ai_prompt, max_tokens=700)
+            post = giga_generate(ai_prompt, max_tokens=1100)
             if post:
                 logger.info(f"GigaChat вернул пост ({len(post)} символов)")
                 post = _sanitize_html_for_telegram(post)
